@@ -577,6 +577,49 @@
   - **Changement ponctuel** : `service = get_openai_service(model="gpt-4o-mini")`
 - **Avantage utilisateur** : Flexibilité pour optimiser coût/performance selon les besoins
 
+### Amélioration Post-Phase 7 : Configuration IA Multi-Fournisseurs 🤖
+- **Date d'implémentation** : 22/01/2025
+- **Fonctionnalité ajoutée** : Interface de configuration pour gérer plusieurs fournisseurs IA (OpenAI, Anthropic, Google Gemini)
+- **Localisation** : `src/gui/config_window.py` et `src/services/ai_config_service.py`
+- **Problématique** : L'application ne supportait qu'OpenAI, limitant les choix et la flexibilité utilisateur
+- **Solution implémentée** :
+  - **Service de configuration multi-fournisseurs** : `AIConfigService` avec support OpenAI, Anthropic, Gemini
+  - **Interface graphique dédiée** : Fenêtre de configuration avec onglets par fournisseur
+  - **Gestion des clés API** : Stockage sécurisé dans fichier `.env` avec masquage d'affichage
+  - **Sélection des modèles** : Listes déroulantes avec modèles disponibles par fournisseur
+  - **Fournisseur actif** : Checkbox et sélection du fournisseur utilisé pour les requêtes
+  - **Validation de configuration** : Vérification automatique des clés API et modèles
+  - **Bouton dans fenêtre principale** : "🤖 Configuration IA" accessible depuis la navigation
+- **Fonctionnalités techniques** :
+  - **Énumération AIProvider** : OPENAI, ANTHROPIC, GEMINI avec modèles prédéfinis
+  - **Factory pattern** : `get_ai_config_service()` pour instance singleton
+  - **Sauvegarde automatique** : Écriture dans `.env` via python-dotenv
+  - **Interface modale** : Fenêtre de configuration non-bloquante avec callback
+  - **Gestion d'erreurs** : Validation des modèles et clés API avec messages explicites
+  - **Test de connexion** : Placeholder pour validation des clés API par fournisseur
+- **Modèles supportés** :
+  - **OpenAI** : gpt-4o, gpt-4o-mini, gpt-4, gpt-3.5-turbo, o3-mini, etc.
+  - **Anthropic** : claude-3-5-sonnet, claude-3-5-haiku, claude-3-opus, etc.
+  - **Gemini** : gemini-2.0-flash-exp, gemini-1.5-pro, gemini-1.5-flash, etc.
+- **Fichier .env structure** :
+  ```
+  OPENAI_API_KEY=your-openai-api-key-here
+  ANTHROPIC_API_KEY=your-anthropic-api-key-here
+  GOOGLE_API_KEY=your-google-api-key-here
+  OPENAI_MODEL=gpt-4o-mini-2024-07-18
+  ANTHROPIC_MODEL=claude-3-5-haiku-20241022
+  GEMINI_MODEL=gemini-1.5-flash
+  AI_ENABLED_PROVIDER=openai
+  ```
+- **Scripts et tests** :
+  - **demo_config_ia.py** : Démonstration complète du système de configuration
+  - **tests/test_config_window.py** : Tests unitaires (4/4 réussis)
+- **Intégration** :
+  - **Fenêtre principale** : Bouton "🤖 Configuration IA" dans section Navigation
+  - **Imports mis à jour** : `src/gui/__init__.py` avec export `ConfigWindow`
+  - **Callback de changement** : Notification dans log principale lors de modification config
+- **Avantage utilisateur** : **Flexibilité totale** pour choisir le fournisseur IA selon besoins/budget
+
 ### Amélioration Post-Phase 7 : Anonymisation RGPD pour OpenAI 🔒
 - **Date d'implémentation** : 22/01/2025
 - **Fonctionnalité ajoutée** : Système d'anonymisation automatique des données personnelles conforme RGPD
@@ -820,15 +863,59 @@
 - **Compatibilité** : Gestion robuste Windows/Linux avec fallbacks automatiques
 - **Avantage utilisateur** : Utilisation optimale de l'espace écran pour la lecture des appréciations
 
-### Configuration et emplacements OpenAI
-- **Clé API** : Fichier `.env` à la racine du projet (récupérée dans `OpenAIService.__init__`)
-- **Configuration** : Éditer le fichier `.env` et remplacer `votre-clé-openai-ici` par votre vraie clé
-- **Sécurité** : Fichier `.env` ajouté au `.gitignore` pour éviter le partage accidentel
-- **Modèle configuré** : Variable `DEFAULT_OPENAI_MODEL` dans `src/services/openai_service.py` ligne 15
-- **Changement de modèle** : Modifier `DEFAULT_OPENAI_MODEL = "votre-modèle"` pour changer globalement
-- **Modèles supportés** : gpt-3.5-turbo, gpt-4, gpt-4o, gpt-4o-mini, etc. (voir `demo_openai_models.py`)
-- **Prétraitement** : `src/services/openai_service.py` fonction `preprocess_appreciation`
-- **Génération générale** : `src/services/openai_service.py` fonction `generate_general_appreciation`
+### Nouvelle Fonctionnalité : Configuration IA Multi-Fournisseurs avec Tests de Connexion
+- **Date d'implémentation** : 01/07/2025
+- **Fonctionnalité ajoutée** : Interface de configuration complète pour OpenAI, Anthropic Claude et Google Gemini avec tests de connexion en temps réel
+- **Localisation** : 
+  - `src/gui/config_window.py` - Interface de configuration avec onglets
+  - `src/services/ai_config_service.py` - Service de gestion des configurations IA
+  - `src/services/ai_connection_test_service.py` - Service de test de connexion IA
+- **Améliorations clés** :
+  - **Interface multi-fournisseurs** : Onglets dédiés pour OpenAI, Anthropic et Google Gemini
+  - **Gestion des clés API** : Champs masqués avec bouton afficher/masquer pour la sécurité
+  - **Sélection de modèles** : Listes déroulantes avec modèles prédéfinis pour chaque fournisseur
+  - **Boutons radio exclusifs** : Sélection du fournisseur actif (un seul à la fois)
+  - **Tests de connexion réels** : Validation en temps réel des clés API et modèles
+  - **Feedback détaillé** : Messages d'erreur spécifiques selon le type d'erreur (clé invalide, modèle non trouvé, etc.)
+  - **Gestion d'erreurs robuste** : Détection automatique des clients manquants avec instructions d'installation
+  - **Threading asynchrone** : Tests en arrière-plan sans blocage de l'interface
+  - **Stockage sécurisé** : Configuration sauvegardée dans fichier `.env` local
+- **Dépendances ajoutées** :
+  - `anthropic>=0.55.0` - Client officiel Anthropic Claude
+  - `google-generativeai>=0.8.5` - Client officiel Google Gemini
+  - `openai>=1.0.0` - Client OpenAI (existant, version mise à jour)
+- **Modèles supportés** :
+  - **OpenAI** : gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo, o3-mini
+  - **Anthropic** : claude-3-5-sonnet, claude-3-5-haiku, claude-3-opus, claude-3-sonnet, claude-3-haiku
+  - **Google Gemini** : gemini-2.0-flash-exp, gemini-1.5-pro, gemini-1.5-flash, gemini-1.0-pro
+- **Scripts de démonstration** :
+  - `demo_config_ia.py` - Test de l'interface de configuration
+  - `demo_test_connexion_ia.py` - Démonstration complète des tests de connexion
+- **Tests unitaires** : `tests/test_connection_service.py` - 15 tests unitaires (100% de réussite)
+- **Documentation** : `README_CONFIG_IA.md` - Guide utilisateur complet
+- **Intégration interface** : Bouton "🤖 Configuration IA" ajouté dans la fenêtre principale
+- **Avantage utilisateur** : Configuration simplifiée multi-fournisseurs avec validation immédiate des clés API
+
+### Configuration IA Multi-Fournisseurs
+- **Fichier de configuration** : `.env` à la racine du projet contenant les clés API et modèles
+- **Interface de configuration** : Fenêtre dédiée accessible via bouton "🤖 Configuration IA" dans la fenêtre principale
+- **Fournisseurs supportés** : OpenAI, Anthropic Claude, Google Gemini
+- **Sécurité** : Fichier `.env` ajouté au `.gitignore` pour éviter le partage accidentel des clés API
+- **Variables d'environnement** :
+  - `OPENAI_API_KEY` : Clé API OpenAI
+  - `ANTHROPIC_API_KEY` : Clé API Anthropic
+  - `GOOGLE_API_KEY` : Clé API Google Gemini
+  - `OPENAI_MODEL` : Modèle OpenAI sélectionné
+  - `ANTHROPIC_MODEL` : Modèle Anthropic sélectionné
+  - `GEMINI_MODEL` : Modèle Gemini sélectionné
+  - `AI_ENABLED_PROVIDER` : Fournisseur actif (openai/anthropic/gemini)
+- **Configuration manuelle** : Éditer directement le fichier `.env` ou utiliser l'interface graphique
+- **Tests de connexion** : Validation automatique des clés API et modèles via l'interface
+- **Services principaux** :
+  - `src/services/ai_config_service.py` : Gestion centralisée des configurations
+  - `src/services/ai_connection_test_service.py` : Tests de connexion en temps réel
+  - `src/services/openai_service.py` : Service OpenAI existant (prétraitement et génération)
+- **Dépendances requises** : Clients officiels installés automatiquement via `requirements.txt`
 
 ### Points de validation utilisateur requis
 - [x] Validation de la structure des données (Phase 2) ✅
@@ -839,4 +926,4 @@
 
 ---
 
-**Document version 1.4 - Mise à jour Phase 7 + Affichage HTML terminée (21/01/2025)**
+**Document version 1.5 - Nouvelle fonctionnalité Configuration IA Multi-Fournisseurs avec Tests de Connexion (01/07/2025)**

@@ -33,6 +33,9 @@ pydantic_core @ file:///croot/pydantic-core_1734726052986/work
 Pygments @ file:///croot/pygments_1744664109463/work
 PySocks @ file:///work/perseverance-python-buildout/croot/pysocks_1728386193338/work
 python-dotenv==1.1.0
+openai>=1.0.0
+anthropic>=0.55.0
+google-generativeai>=0.8.5
 requests @ file:///croot/requests_1730999120400/work
 rich @ file:///croot/rich_1732638981168/work
 ruamel.yaml @ file:///croot/ruamel.yaml_1745960305322/work

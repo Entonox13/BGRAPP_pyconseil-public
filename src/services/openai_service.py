@@ -1,32 +1,55 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Service OpenAI pour l'application BGRAPP Pyconseil
-Gère l'intégration avec l'API OpenAI pour le prétraitement et la génération d'appréciations
+Service IA multi-fournisseurs pour l'application BGRAPP Pyconseil
+Gère l'intégration avec les APIs IA (OpenAI, Anthropic, Gemini) pour le prétraitement et la génération d'appréciations
 """
 
 import os
 import logging
 from typing import List, Dict, Optional, Tuple
-import openai
-from openai import OpenAI
 import time
 import re
 from pathlib import Path
 
-# ==========================================
-# CONFIGURATION DU MODÈLE OPENAI
-# ==========================================
-# Modifiez cette variable pour changer le modèle utilisé
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini-2024-07-18"
+# Imports conditionnels pour les clients IA
+try:
+    import openai
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    openai = None
+    OpenAI = None
 
-# Modèles disponibles (exemples) :
-# - "gpt-3.5-turbo"           # Rapide et économique (recommandé pour la plupart des cas)
-# - "gpt-3.5-turbo-16k"       # Version avec contexte étendu (16k tokens)
-# - "gpt-4"                   # Plus puissant mais plus lent et coûteux
-# - "gpt-4-turbo-preview"     # Version turbo de GPT-4
-# - "o3-mini-2025-01-31"                  # Raisonnement
-# - "gpt-4o-mini-2024-07-18"             # Version mini de GPT-4o (équilibré performance/coût)
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    anthropic = None
+
+try:
+    import google.generativeai as genai
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
+    genai = None
+
+# Import conditionnel pour la configuration IA
+try:
+    from .ai_config_service import AIProvider, get_ai_config_service
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from ai_config_service import AIProvider, get_ai_config_service
+
+# ==========================================
+# CONFIGURATION RÉTROCOMPATIBILITÉ
+# ==========================================
+# Pour maintenir la rétrocompatibilité avec l'ancien code
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini-2024-07-18"
 
 # ==========================================
 # CONFIGURATION ANONYMISATION RGPD
@@ -163,26 +186,53 @@ class RGPDAnonymizer:
         self.logger.debug("Mappings RGPD effacés")
 
 
-class OpenAIService:
-    """Service de communication avec l'API OpenAI avec anonymisation RGPD"""
+class AIService:
+    """Service de communication avec les APIs IA multi-fournisseurs avec anonymisation RGPD"""
     
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, enable_rgpd: bool = True):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, enable_rgpd: bool = True, provider: Optional[AIProvider] = None):
         """
-        Initialise le service OpenAI
+        Initialise le service IA multi-fournisseurs
         
         Args:
-            api_key: Clé API OpenAI (si non fournie, cherche dans les variables d'environnement)
-            model: Modèle à utiliser (si non fourni, utilise DEFAULT_OPENAI_MODEL)
+            api_key: Clé API (si non fournie, utilise la configuration)
+            model: Modèle à utiliser (si non fourni, utilise la configuration)
             enable_rgpd: Active/désactive l'anonymisation RGPD (défaut: True)
+            provider: Fournisseur à utiliser (si non fourni, utilise le fournisseur actif de la configuration)
         """
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
-        if not self.api_key:
-            raise ValueError("Clé API OpenAI non trouvée. Définissez OPENAI_API_KEY dans le fichier .env ou passez api_key")
+        self.config_service = get_ai_config_service()
         
-        self.client = OpenAI(api_key=self.api_key)
+        # Déterminer le fournisseur à utiliser
+        if provider:
+            self.provider = provider
+        else:
+            self.provider = self.config_service.get_enabled_provider()
+            if not self.provider:
+                raise ValueError("Aucun fournisseur IA configuré. Configurez vos clés API via l'interface de configuration.")
         
-        # Utiliser le modèle passé en paramètre ou celui configuré par défaut
-        self.model = model or DEFAULT_OPENAI_MODEL
+        # Récupérer la clé API
+        if api_key:
+            self.api_key = api_key
+        else:
+            if self.provider == AIProvider.LOCAL:
+                # Pour LOCAL, pas de clé API obligatoire
+                self.api_key = ""
+            else:
+                # Pour les autres providers, clé API obligatoire
+                self.api_key = self.config_service.get_api_key(self.provider)
+                if not self.api_key:
+                    raise ValueError(f"Aucune clé API configurée pour {self.provider.value}. Configurez votre clé API via l'interface de configuration.")
+        
+        # Récupérer le modèle
+        if model:
+            self.model = model
+        else:
+            self.model = self.config_service.get_model(self.provider)
+        
+        # Configuration logging (avant l'initialisation du client)
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialiser le client selon le fournisseur
+        self.client = self._initialize_client()
         
         self.max_retries = 3
         self.retry_delay = 1
@@ -191,29 +241,62 @@ class OpenAIService:
         self.enable_rgpd = enable_rgpd
         self.anonymizer = RGPDAnonymizer() if enable_rgpd else None
         
-        # Configuration logging
-        self.logger = logging.getLogger(__name__)
-        
-        # Log du modèle et configuration RGPD utilisés pour information
+        # Log du fournisseur, modèle et configuration RGPD utilisés pour information
         rgpd_status = "activée" if enable_rgpd else "désactivée"
-        self.logger.info(f"Service OpenAI initialisé avec le modèle: {self.model}, Anonymisation RGPD: {rgpd_status}")
+        self.logger.info(f"Service IA initialisé avec {self.provider.value}, modèle: {self.model}, Anonymisation RGPD: {rgpd_status}")
+    
+    def _initialize_client(self):
+        """Initialise le client selon le fournisseur configuré"""
+        if self.provider == AIProvider.OPENAI:
+            if not OPENAI_AVAILABLE:
+                raise ImportError("Client OpenAI non installé. Exécutez: pip install openai>=1.0.0")
+            return OpenAI(api_key=self.api_key)
+        
+        elif self.provider == AIProvider.ANTHROPIC:
+            if not ANTHROPIC_AVAILABLE:
+                raise ImportError("Client Anthropic non installé. Exécutez: pip install anthropic>=0.21.0")
+            return anthropic.Anthropic(api_key=self.api_key)
+        
+        elif self.provider == AIProvider.GEMINI:
+            if not GOOGLE_AVAILABLE:
+                raise ImportError("Client Google Generative AI non installé. Exécutez: pip install google-generativeai>=0.3.0")
+            genai.configure(api_key=self.api_key)
+            return genai.GenerativeModel(self.model)
+        
+        elif self.provider == AIProvider.LOCAL:
+            if not OPENAI_AVAILABLE:
+                raise ImportError("Client OpenAI requis pour le provider LOCAL. Exécutez: pip install openai>=1.0.0")
+            
+            # Récupérer l'URL de base du serveur local
+            base_url = self.config_service.get_base_url(AIProvider.LOCAL)
+            if not base_url:
+                base_url = "http://localhost:11434"  # URL par défaut pour Ollama
+            
+            # Convertir l'URL Ollama vers le format OpenAI si nécessaire
+            if "localhost:11434" in base_url and not base_url.endswith("/v1"):
+                base_url = base_url.rstrip("/") + "/v1"
+            
+            # Pour les LLMs locaux, la clé API peut être vide ou une valeur factice
+            api_key = self.api_key if self.api_key else "local-api-key"
+            
+            self.logger.info(f"Connexion au serveur local: {base_url}")
+            return OpenAI(api_key=api_key, base_url=base_url)
+        
+        else:
+            raise ValueError(f"Fournisseur non supporté: {self.provider}")
     
     def test_connection(self) -> bool:
         """
-        Teste la connexion à l'API OpenAI
+        Teste la connexion à l'API IA
         
         Returns:
             bool: True si la connexion fonctionne
         """
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=5
-            )
-            return True
+            test_response = self._make_api_call("test", max_tokens=1)
+            return bool(test_response)
         except Exception as e:
-            self.logger.error(f"Erreur de connexion OpenAI: {e}")
+            self.logger.error(f"Erreur de connexion {self.provider.value}: {e}")
             return False
     
     def preprocess_appreciation(self, text: str, student_nom: str = None, student_prenom: str = None) -> str:
@@ -438,59 +521,134 @@ Appréciation générale:"""
         
         return success_count, error_count
     
-    def _make_api_call(self, prompt: str) -> str:
+    def _make_api_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> str:
         """
-        Effectue un appel API avec gestion des erreurs et retry
+        Effectue un appel API avec gestion des erreurs et retry selon le fournisseur
         
         Args:
             prompt: Prompt à envoyer à l'API
+            max_tokens: Nombre maximum de tokens à générer
+            temperature: Température pour la génération
             
         Returns:
             str: Réponse de l'API
         """
         for attempt in range(self.max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=500,
-                    temperature=0.7
-                )
+                if self.provider == AIProvider.OPENAI or self.provider == AIProvider.LOCAL:
+                    return self._call_openai(prompt, max_tokens, temperature)
+                elif self.provider == AIProvider.ANTHROPIC:
+                    return self._call_anthropic(prompt, max_tokens, temperature)
+                elif self.provider == AIProvider.GEMINI:
+                    return self._call_gemini(prompt, max_tokens, temperature)
+                else:
+                    raise ValueError(f"Fournisseur non supporté: {self.provider}")
                 
-                return response.choices[0].message.content.strip()
+            except Exception as e:
+                # Gestion spécifique des rate limits pour chaque fournisseur
+                is_rate_limit = self._is_rate_limit_error(e)
                 
-            except openai.RateLimitError:
-                if attempt < self.max_retries - 1:
+                if is_rate_limit and attempt < self.max_retries - 1:
                     wait_time = self.retry_delay * (2 ** attempt)
                     self.logger.warning(f"Rate limit atteint, attente {wait_time}s avant retry...")
                     time.sleep(wait_time)
                 else:
-                    raise
-            except Exception as e:
-                if attempt < self.max_retries - 1:
-                    self.logger.warning(f"Tentative {attempt + 1} échouée: {e}")
-                    time.sleep(self.retry_delay)
-                else:
-                    raise
+                    if attempt < self.max_retries - 1 and not is_rate_limit:
+                        self.logger.warning(f"Tentative {attempt + 1} échouée: {e}")
+                        time.sleep(self.retry_delay)
+                    else:
+                        raise
+    
+    def _call_openai(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Effectue un appel à l'API OpenAI"""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+        return response.choices[0].message.content.strip()
+    
+    def _call_anthropic(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Effectue un appel à l'API Anthropic"""
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.content[0].text.strip()
+    
+    def _call_gemini(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Effectue un appel à l'API Google Gemini"""
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=max_tokens,
+            temperature=temperature
+        )
+        response = self.client.generate_content(prompt, generation_config=generation_config)
+        return response.text.strip()
+    
+    def _is_rate_limit_error(self, error: Exception) -> bool:
+        """Détecte si l'erreur est liée à un rate limit selon le fournisseur"""
+        error_str = str(error).lower()
+        
+        if self.provider == AIProvider.OPENAI or self.provider == AIProvider.LOCAL:
+            return hasattr(error, '__class__') and 'ratelimit' in error.__class__.__name__.lower()
+        elif self.provider == AIProvider.ANTHROPIC:
+            return hasattr(error, '__class__') and 'ratelimit' in error.__class__.__name__.lower()
+        elif self.provider == AIProvider.GEMINI:
+            return 'quota' in error_str or 'limit' in error_str
+        
+        return False
 
 
-def get_openai_service(model: Optional[str] = None, enable_rgpd: bool = True) -> Optional[OpenAIService]:
+# ==========================================
+# RÉTROCOMPATIBILITÉ
+# ==========================================
+# Alias pour maintenir la rétrocompatibilité avec l'ancien code
+OpenAIService = AIService
+
+
+def get_openai_service(model: Optional[str] = None, enable_rgpd: bool = True) -> Optional[AIService]:
     """
-    Factory function pour obtenir une instance du service OpenAI
+    Factory function pour obtenir une instance du service IA (rétrocompatibilité)
     
     Args:
-        model: Modèle à utiliser (optionnel, utilise DEFAULT_OPENAI_MODEL par défaut)
+        model: Modèle à utiliser (optionnel, utilise la configuration par défaut)
         enable_rgpd: Active/désactive l'anonymisation RGPD (défaut: True)
     
     Returns:
-        OpenAIService ou None si la configuration échoue
+        AIService ou None si la configuration échoue
     """
     try:
-        service = OpenAIService(model=model, enable_rgpd=enable_rgpd)
+        service = AIService(model=model, enable_rgpd=enable_rgpd)
         if service.test_connection():
             return service
         else:
             return None
     except Exception as e:
-        logging.error(f"Impossible d'initialiser le service OpenAI: {e}")
+        logging.error(f"Impossible d'initialiser le service IA: {e}")
+        return None
+
+
+def get_ai_service(provider: Optional[AIProvider] = None, model: Optional[str] = None, enable_rgpd: bool = True) -> Optional[AIService]:
+    """
+    Factory function pour obtenir une instance du service IA multi-fournisseurs
+    
+    Args:
+        provider: Fournisseur à utiliser (optionnel, utilise le fournisseur actif)
+        model: Modèle à utiliser (optionnel, utilise la configuration par défaut)
+        enable_rgpd: Active/désactive l'anonymisation RGPD (défaut: True)
+    
+    Returns:
+        AIService ou None si la configuration échoue
+    """
+    try:
+        service = AIService(provider=provider, model=model, enable_rgpd=enable_rgpd)
+        if service.test_connection():
+            return service
+        else:
+            return None
+    except Exception as e:
+        logging.error(f"Impossible d'initialiser le service IA: {e}")
         return None 

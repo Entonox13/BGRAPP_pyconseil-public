@@ -19,6 +19,7 @@ try:
         get_processing_summary,
         MainProcessorError
     )
+    from .config_window import ConfigWindow
 except ImportError:
     # Fallback pour les tests et l'exécution directe
     import sys
@@ -29,6 +30,8 @@ except ImportError:
         get_processing_summary,
         MainProcessorError
     )
+    sys.path.insert(0, str(Path(__file__).parent))
+    from config_window import ConfigWindow
 
 
 class MainWindow:
@@ -224,7 +227,7 @@ class MainWindow:
         )
         section_label.grid(row=row, column=0, pady=(20, 5), sticky=tk.W)
         
-        # Frame pour les boutons
+        # Frame pour les boutons - Ligne 1
         nav_frame = ttk.Frame(parent)
         nav_frame.grid(row=row+1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
@@ -246,13 +249,21 @@ class MainWindow:
         )
         self.conseil_btn.grid(row=0, column=1, padx=(0, 10))
         
+        # Bouton configuration IA
+        config_btn = ttk.Button(
+            nav_frame,
+            text="🤖 Configuration IA",
+            command=self._open_config_window
+        )
+        config_btn.grid(row=0, column=2, padx=(0, 10))
+        
         # Bouton quitter
         quit_btn = ttk.Button(
             nav_frame,
             text="❌ Quitter",
             command=self._on_closing
         )
-        quit_btn.grid(row=0, column=2)
+        quit_btn.grid(row=0, column=3)
     
     def _create_status_section(self, parent: ttk.Frame, row: int):
         """Crée la section des messages d'état"""
@@ -596,6 +607,30 @@ class MainWindow:
                 "Erreur",
                 f"Impossible d'ouvrir la fenêtre conseil:\n{str(e)}"
             )
+    
+    def _open_config_window(self):
+        """Ouvre la fenêtre de configuration IA"""
+        self._log_message("🤖 Ouverture de la fenêtre de configuration IA...")
+        
+        try:
+            # Créer et lancer la fenêtre de configuration
+            config_window = ConfigWindow(
+                parent_window=self,
+                on_config_changed=self._on_ai_config_changed
+            )
+            
+            self._log_message("✅ Fenêtre de configuration IA ouverte", "success")
+            
+        except Exception as e:
+            self._log_message(f"❌ Erreur lors de l'ouverture de la configuration IA: {e}", "error")
+            messagebox.showerror(
+                "Erreur", 
+                f"Erreur lors de l'ouverture de la configuration IA:\n{str(e)}"
+            )
+    
+    def _on_ai_config_changed(self):
+        """Callback appelé quand la configuration IA change"""
+        self._log_message("🔧 Configuration IA mise à jour", "success")
     
     def _log_message(self, message: str, level: str = "info"):
         """Ajoute un message dans la zone de statut"""
