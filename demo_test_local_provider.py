@@ -199,7 +199,7 @@ def test_ollama_integration():
     
     try:
         # Test de l'URL Ollama par défaut
-        from src.services.ai_config_service import get_ai_config_service
+        from src.services.ai_config_service import AIProvider, get_ai_config_service
         config_service = get_ai_config_service()
         
         # Test de transformation d'URL
