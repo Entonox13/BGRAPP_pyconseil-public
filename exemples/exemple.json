@@ -1,0 +1,58 @@
+[
+    {
+      "Nom": "MARTIN",
+      "Prenom": "Sarah",
+      "AppreciationGeneraleS1": "Élève sérieuse et investie",
+      "AppreciationGeneraleS2": "Progression constante et travail régulier",
+      "Matieres": {
+        "Mathematiques": {
+          "HeuresAbsence": 3,
+          "MoyenneS1": 14.5,
+          "MoyenneS2": 13.0,
+          "MoyenneMax": 18.5,
+          "MoyenneMin": 9.0,
+          "AppreciationS1": "Bon niveau général",
+          "AppreciationS2": "Efforts soutenus à maintenir"
+        },
+        "Francais": {
+          "HeuresAbsence": 0,
+          "MoyenneS1": 12.0,
+          "MoyenneS2": 14.0,
+          "MoyenneMax": 16.0,
+          "MoyenneMin": 10.0,
+          "AppreciationS1": "Participation en amélioration",
+          "AppreciationS2": "Bonne progression observée"
+        }
+      }
+    },
+    {
+      "Nom": "ensemble des mots en majuscule dans la colonne 'Élève' du fichier source.xlsx",
+      "Prenom": "ensemble des mots en minuscule et commençant par une majuscule dans la colonne 'Élève' du fichier source.xlsx",
+      "AppreciationGeneraleS1": "obtenu dans la colonne 'Appreciation S1' du fichier source.xlsx",
+      "AppreciationGeneraleS2": "placer la réponse de l'appel à openai api",
+      "Matieres": {
+        "Mathematiques": {
+          "HeuresAbsenceS2": "obtenu dans la colonne 'H.Abs.' du fichier csv de la matière",
+          "HeuresAbsenceS1": "Parsing de la colonne 'Rappel de la période précédente : S1' du fichier csv de la matière",
+          "MoyenneS1": "Parsing de la colonne 'Rappel de la période précédente : S1' du fichier csv de la matière",
+          "MoyenneS2": "obtenu dans la colonne 'Moyenne S2' du fichier csv de la matière",
+          "MoyenneS1Max": "une fois le fichier csv parcouru et les objets complétés, parcourir les objets et prendre la valeur max de la clé 'MoyenneS1' dans cette matière",
+          "MoyenneS1Min": "une fois le fichier csv parcouru et les objets complétés, parcourir les objets et prendre la valeur min de la clé 'MoyenneS1' dans cette matière",
+          "MoyenneS2Max": "une fois le fichier csv parcouru et les objets complétés, parcourir les objets et prendre la valeur max de la clé 'MoyenneS2' dans cette matière",
+          "MoyenneS2Min": "une fois le fichier csv parcouru et les objets complétés, parcourir les objets et prendre la valeur min de la clé 'MoyenneS2' dans cette matière",
+          "AppreciationS1": "Parsing de la colonne 'Appréciation S1' du fichier csv de la matière",
+          "AppreciationS2": "obtenu dans la colonne 'App. A : Appréciations' du fichier csv de la matière"
+        },
+        "Histoire": {
+          "HeuresAbsence": 2,
+          "MoyenneS1": 11.5,
+          "MoyenneS2": 13.0,
+          "MoyenneMax": 14.5,
+          "MoyenneMin": 9.0,
+          "AppreciationS1": "Travail à approfondir",
+          "AppreciationS2": "Amélioration progressive"
+        }
+      }
+    }
+  ]
+  
