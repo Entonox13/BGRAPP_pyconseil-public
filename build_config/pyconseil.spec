@@ -11,9 +11,14 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 # Configuration des chemins
-project_root = Path('..').resolve()
+spec_dir = Path(SPECPATH).resolve()
+project_root = (spec_dir / '..').resolve()
 src_path = project_root / 'src'
 main_script = project_root / 'main.py'
+
+# Icône de l'application (.ico pour Windows ; ignorée sous Linux)
+_icon_file = spec_dir / 'icon.ico'
+app_icon = str(_icon_file) if _icon_file.exists() else None
 
 # Collecte automatique des sous-modules des SDK IA (souvent mal détectés)
 ai_hiddenimports = (
@@ -125,8 +130,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # Icône de l'application (optionnel)
-    icon=None,  # Ajouter un fichier .ico/.icns si disponible
+    icon=app_icon,  # build_config/icon.ico (Windows)
 )
 
 # Configuration pour créer un dossier de distribution (optionnel)

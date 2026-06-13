@@ -81,12 +81,9 @@ jobs:
           ln -sf "usr/share/applications/pyconseil.desktop" AppDir/
           ln -sf "usr/bin/${APP_NAME}" AppDir/AppRun
 
-          if [ -f "icon.png" ]; then
-            cp icon.png AppDir/usr/share/icons/hicolor/256x256/apps/pyconseil.png
-          else
-            # Icône minimale 1x1 pour satisfaire appimagetool
-            printf '\x89PNG\r\n\x1a\n' > AppDir/usr/share/icons/hicolor/256x256/apps/pyconseil.png || true
-          fi
+          cp icon.png AppDir/usr/share/icons/hicolor/256x256/apps/pyconseil.png
+          # appimagetool attend aussi une icône à la racine de l'AppDir
+          cp icon.png AppDir/pyconseil.png
 
       - name: Build AppImage
         working-directory: ./build_config
