@@ -1,0 +1,14 @@
+
+# BGRAPP Pyconseil - Checksums des releases
+# Générés automatiquement le Wed Jul  2 10:38:50 AM CEST 2025
+
+## Linux Standard Executable
+149c5f5389be6737d63eee5fd307a8fb964eddf9e0dd33f43288b379fb31cf85  BGRAPP_Pyconseil_Latest_Linux
+
+## Linux AppImage  
+6b9bde2f1b35ae436b7b8c4e1ee6942da078265df20a2dc34f65077e60acf022  BGRAPP_Pyconseil-2025.07.02-x86_64.AppImage
+
+## Vérification des checksums
+# Pour vérifier l'intégrité des fichiers :
+# sha256sum -c nom_du_fichier.sha256
+

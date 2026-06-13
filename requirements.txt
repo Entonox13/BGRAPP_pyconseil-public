@@ -1,0 +1,14 @@
+# Dépendances de l'application BGRAPP Pyconseil
+# Installation : pip install -r requirements.txt
+
+# Fournisseurs IA
+openai>=2.0
+anthropic>=0.69
+google-genai>=2.0
+
+# Configuration / environnement
+python-dotenv>=1.0
+
+# Lecture des bulletins (.xlsx)
+pandas>=2.0
+openpyxl>=3.1

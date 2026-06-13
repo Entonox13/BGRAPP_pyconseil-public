@@ -1,0 +1,129 @@
+# CAHIER DES CHARGES
+## Outil d'aide à la préparation des conseils de classe en collège
+
+---
+
+## 1. CONTEXTE ET OBJECTIFS
+
+### 1.1 Contexte
+Développement d'un outil informatique destiné à faciliter la préparation des conseils de classe dans les établissements de collège.
+
+### 1.2 Objectif principal
+Créer une application permettant de centraliser et traiter les données des élèves pour optimiser la préparation des conseils de classe.
+
+---
+
+## 2. SPÉCIFICATIONS TECHNIQUES
+
+### 2.1 Langage et paradigme
+- **Langage** : Python
+- **Paradigme** : Programmation orientée objet (si nécessaire)
+- **Interface** : Interface graphique (GUI)
+
+### 2.2 Environnement de développement
+- **Environnement** : Conda dédié au projet
+- **Structure** : Dossier `/exemple` contenant les fichiers de tests et exemples
+
+---
+
+## 3. FONCTIONNALITÉS
+
+### 3.1 Génération de fichiers JSON
+
+#### 3.1.1 Structure des données
+- **Référence** : Structure de l'objet définie dans `exemple.json`
+- **Sortie** : Création d'un fichier `output.json`
+
+#### 3.1.2 Processus de traitement
+1. **Source principale** : Fichier `source.xlsx` contenant la liste des élèves
+2. **Création d'objets** : Générer un objet bulletin par élève présent dans `source.xlsx`
+3. **Enrichissement des données** : 
+   - Parcourir les fichiers `.csv` (un fichier par matière)
+   - Compléter les objets bulletins selon les instructions définies dans `exemple.json`
+4. **Cohérence des données** : Si 22 élèves dans `source.xlsx`, générer exactement 22 bulletins
+
+---
+
+## 4. INTERFACE GRAPHIQUE
+
+### 4.1 Fenêtre principale
+#### Fonctionnalités :
+- **Sélection du dossier de travail** : 
+  - Doit contenir les fichiers CSV de chaque matière
+  - Doit contenir le fichier `source.xlsx`
+- **Actions disponibles** :
+  - Lancement de la création du fichier JSON
+  - Ouverture de la fenêtre d'édition
+  - Ouverture de la fenêtre conseil
+  - Option de fermeture de l'application
+
+### 4.2 Fenêtre d'édition
+#### Fonctionnalités d'affichage :
+- **Visualisation complète** : Affichage de toutes les données contenues dans un bulletin
+- **Navigation** : 
+  - Bouton "Bulletin suivant"
+  - Bouton "Bulletin précédent"
+
+#### Fonctionnalités de traitement :
+- **Prétraitement des appréciations** :
+  - Envoi des appréciations à l'API OpenAI
+  - Retour avec balises HTML intégrées :
+    - `<span class="positif">` pour les éléments positifs
+    - `<span class="négatif">` pour les éléments négatifs
+
+- **Génération d'appréciation générale** :
+  - Envoi des appréciations de chaque matière du bulletin en cours à l'API OpenAI
+  - Génération automatique d'une appréciation générale synthétique
+
+- **Navigation** : Bouton de retour à la fenêtre principale
+
+### 4.3 Fenêtre conseil
+#### Statut :
+**À définir** : Spécifications à déterminer ultérieurement dans le processus de développement
+
+---
+
+## 5. ARCHITECTURE DES FICHIERS
+
+### 5.1 Fichiers d'entrée
+- **`source.xlsx`** : Liste des élèves
+- **Fichiers `.csv`** : Données par matière (un fichier par matière)
+- **`exemple.json`** : Structure de référence des objets bulletin
+
+### 5.2 Fichiers de sortie
+- **`output.json`** : Fichier contenant tous les bulletins générés
+
+### 5.3 Dossier de travail
+Structure recommandée :
+```
+dossier_de_travail/
+├── source.xlsx
+├── matiere1.csv
+├── matiere2.csv
+├── ...
+└── output.json (généré)
+```
+
+---
+
+## 6. INTÉGRATIONS EXTERNES
+
+### 6.1 API OpenAI
+- **Usage** : Traitement et amélioration des appréciations
+- **Fonctions** :
+  - Ajout de balises HTML sémantiques
+  - Génération d'appréciations générales synthétiques
+
+---
+
+## 7. POINTS À DÉVELOPPER
+
+### 7.1 Phase ultérieure
+- Spécifications complètes de la fenêtre conseil
+- Détails de l'intégration API OpenAI (authentification, endpoints, etc.)
+- Gestion des erreurs et cas particuliers
+- Tests et validation
+
+---
+
+*Document version 1.1 - À mettre à jour selon l'avancement du projet*

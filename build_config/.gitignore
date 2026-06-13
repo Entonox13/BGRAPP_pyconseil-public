@@ -1,0 +1,18 @@
+# Fichiers et dossiers temporaires de build
+build_env/
+dist/
+build/
+*.AppImage
+AppDir/
+
+# Logs PyInstaller
+*.log
+
+# Fichiers temporaires Windows
+*.tmp
+*.temp
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo 

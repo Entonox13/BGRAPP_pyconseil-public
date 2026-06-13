@@ -1,0 +1,22 @@
+# Dépendances nécessaires pour le packaging de BGRAPP Pyconseil
+# (runtime + outils de build). tkinter est fourni avec Python standard.
+
+# --- Fournisseurs IA --------------------------------------------------------
+openai>=2.0
+anthropic>=0.69
+google-genai>=2.0
+
+# --- Configuration / environnement -----------------------------------------
+python-dotenv>=1.0
+
+# --- Lecture des bulletins (.xlsx) -----------------------------------------
+pandas>=2.0
+openpyxl>=3.1
+
+# --- Build et packaging -----------------------------------------------------
+pyinstaller>=6.6
+wheel>=0.40.0
+setuptools>=68.0.0
+
+# Note : appimagetool est installé séparément dans le workflow GitHub Actions
+# (voir .github/workflows/build-and-release.yml).
