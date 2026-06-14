@@ -8,40 +8,55 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Import conditionnel
 try:
-    from ..models.bulletin import Bulletin, Eleve, AppreciationMatiere
+    from ..models.bulletin import Bulletin, Eleve, AppreciationMatiere, PERIOD_CODES
     from ..utils.semester import (
+        Period,
         Semester,
-        infer_semester_from_bulletins_data,
-        semester_from_metadata,
+        PeriodSystem,
+        periods_for_system,
+        infer_period_from_bulletins_data,
+        period_from_metadata,
+        period_system_from_metadata,
     )
+    from ..services.json_generator import save_output_json
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from models.bulletin import Bulletin, Eleve, AppreciationMatiere
+    from models.bulletin import Bulletin, Eleve, AppreciationMatiere, PERIOD_CODES
     from utils.semester import (
+        Period,
         Semester,
-        infer_semester_from_bulletins_data,
-        semester_from_metadata,
+        PeriodSystem,
+        periods_for_system,
+        infer_period_from_bulletins_data,
+        period_from_metadata,
+        period_system_from_metadata,
     )
+    from services.json_generator import save_output_json
 
 
 class EditionWindow:
     """Fenêtre d'édition des bulletins"""
     
     def __init__(self, parent_window=None, json_file_path: Optional[str] = None,
-                 initial_semester: Optional[Semester] = None):
+                 initial_semester: Optional[Period] = None):
         self.parent_window = parent_window
         self.json_file_path = json_file_path
         self.bulletins: List[Bulletin] = []
         self.current_bulletin_index: int = 0
-        self.semester: Semester = initial_semester or Semester.S2
+        self.period: Period = initial_semester or Period.S2
+        self.period_codes: List[str] = self._default_period_codes()
         self.metadata: Dict[str, Any] = {}
-        self._s2_controls_hidden = False
+        self.appreciation_widgets: List[Any] = []
+        self.appreciation_texts: Dict[str, tk.Text] = {}
+        self.general_widgets: List[Any] = []
+        self.general_texts: Dict[str, tk.Text] = {}
         
         # Créer la fenêtre
         self.root = tk.Toplevel() if parent_window else tk.Tk()
@@ -50,7 +65,7 @@ class EditionWindow:
         
         self._setup_styles()
         self._create_interface()
-        self._apply_semester_ui_state()
+        self._apply_period_ui_state()
         
         if json_file_path and os.path.exists(json_file_path):
             self._load_bulletins_from_file(json_file_path)
@@ -87,42 +102,77 @@ class EditionWindow:
         self._create_content_area(content_frame, 0, 1)
         self._create_action_bar(main_frame, 2)
 
-    def _determine_semester(self, metadata: Optional[Dict[str, Any]], data: List[Dict[str, Any]]) -> Semester:
-        """Détermine le semestre actif à partir des métadonnées ou des données JSON."""
-        semester = semester_from_metadata(metadata)
-        if semester:
-            return semester
-        
-        return infer_semester_from_bulletins_data(data)
+    @property
+    def semester(self) -> Period:
+        """Alias rétro-compatible de la période courante."""
+        return self.period
 
-    def _apply_semester_ui_state(self):
-        """Adapte l'interface selon le semestre détecté."""
+    @semester.setter
+    def semester(self, value: Period) -> None:
+        self.period = value
+
+    def _default_period_codes(self) -> List[str]:
+        """Codes de période par défaut selon le système courant."""
+        system = self.period.system if hasattr(self, 'period') else PeriodSystem.SEMESTRE
+        return [p.value for p in periods_for_system(system)]
+
+    def _determine_period(self, metadata: Optional[Dict[str, Any]], data: List[Dict[str, Any]]) -> Period:
+        """Détermine la période active à partir des métadonnées ou des données JSON."""
+        period = period_from_metadata(metadata)
+        if period:
+            return period
+        return infer_period_from_bulletins_data(data)
+
+    def _compute_period_codes(self) -> List[str]:
+        """
+        Toutes les périodes réellement présentes dans les bulletins (ordre
+        canonique), sans filtrage par système afin de ne masquer aucune
+        donnée (ex: des données S1 mêlées à une structure trimestre).
+        """
+        present = set()
+        for bulletin in self.bulletins:
+            for code, texte in bulletin.appreciations_generales.items():
+                if texte:
+                    present.add(code)
+            for appreciation in bulletin.matieres.values():
+                present.update(appreciation.periodes.keys())
+        
+        if present:
+            return [c for c in PERIOD_CODES if c in present]
+        
+        # Aucune donnée : colonnes par défaut du système (métadonnées/période)
+        system = period_system_from_metadata(self.metadata) or self.period.system
+        return [p.value for p in periods_for_system(system)]
+
+    def _apply_period_ui_state(self):
+        """Reconstruit colonnes et sections selon les périodes présentes."""
         if not hasattr(self, 'subjects_tree'):
             return
         
-        s1_columns = ('matiere', 'moyenne_s1', 'absence_s1')
-        if getattr(self, 'semester', Semester.S2) == Semester.S1:
-            self.subjects_tree.configure(displaycolumns=s1_columns)
-            
-            if not self._s2_controls_hidden:
-                self.appreciation_s2_label.grid_remove()
-                self.appreciation_s2_text.grid_remove()
-                self.general_s2_frame.grid_remove()
-                self._s2_controls_hidden = True
-            
-            self.current_generate_btn.config(text="✨ Générer appréciation S1")
-            self.generate_btn.config(text="✨ Génération appréciation générale (S1)")
-        else:
-            self.subjects_tree.configure(displaycolumns=self.subjects_tree_columns)
-            
-            if self._s2_controls_hidden:
-                self.appreciation_s2_label.grid()
-                self.appreciation_s2_text.grid()
-                self.general_s2_frame.grid()
-                self._s2_controls_hidden = False
-            
-            self.current_generate_btn.config(text="✨ Générer appréciation S2")
-            self.generate_btn.config(text="✨ Génération appréciation générale (S2)")
+        self.period_codes = self._compute_period_codes()
+        self._configure_subjects_columns()
+        self._build_appreciation_widgets()
+        self._build_general_widgets()
+        
+        # Libellés des boutons en fonction de la période courante
+        code = self.period.value
+        if hasattr(self, 'current_generate_btn'):
+            self.current_generate_btn.config(text=f"✨ Générer appréciation {code}")
+        if hasattr(self, 'generate_btn'):
+            self.generate_btn.config(text=f"✨ Génération appréciation générale ({code})")
+
+    def _metadata_for_save(self) -> Dict[str, Any]:
+        """Prépare le bloc _metadata à écrire en tête du JSON."""
+        metadata = dict(self.metadata) if self.metadata else {}
+        metadata.update({
+            "semester": self.period.value,
+            "current_period": self.period.value,
+            "period_system": self.period.system.value,
+            "period_label": self.period.label,
+            "semester_label": self.period.label,
+            "saved_at": datetime.utcnow().isoformat(timespec="seconds"),
+        })
+        return metadata
     
     def _create_toolbar(self, parent, row):
         """Crée la barre d'outils"""
@@ -219,22 +269,8 @@ class EditionWindow:
         tree_frame.columnconfigure(0, weight=1)
         tree_frame.rowconfigure(0, weight=1)
         
-        columns = ('matiere', 'moyenne_s1', 'moyenne_s2', 'absence_s1', 'absence_s2')
-        self.subjects_tree_columns = columns
-        self.subjects_tree = ttk.Treeview(tree_frame, columns=columns, show='headings', height=15)
-        
-        # Configuration colonnes
-        self.subjects_tree.heading('matiere', text='Matière')
-        self.subjects_tree.heading('moyenne_s1', text='Moy. S1')
-        self.subjects_tree.heading('moyenne_s2', text='Moy. S2')
-        self.subjects_tree.heading('absence_s1', text='Abs. S1')
-        self.subjects_tree.heading('absence_s2', text='Abs. S2')
-        
-        self.subjects_tree.column('matiere', width=200)
-        self.subjects_tree.column('moyenne_s1', width=80)
-        self.subjects_tree.column('moyenne_s2', width=80)
-        self.subjects_tree.column('absence_s1', width=80)
-        self.subjects_tree.column('absence_s2', width=80)
+        self.subjects_tree = ttk.Treeview(tree_frame, show='headings', height=15)
+        self._configure_subjects_columns()
         
         self.subjects_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
@@ -243,22 +279,61 @@ class EditionWindow:
         v_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         self.subjects_tree.configure(yscrollcommand=v_scrollbar.set)
         
-        # Zone appréciations
-        appreciation_frame = ttk.LabelFrame(subjects_frame, text="Appréciations de la matière sélectionnée", padding="5")
-        appreciation_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
-        appreciation_frame.columnconfigure(0, weight=1)
-        
-        self.appreciation_s1_label = ttk.Label(appreciation_frame, text="Semestre 1:")
-        self.appreciation_s1_label.grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.appreciation_s1_text = tk.Text(appreciation_frame, height=3, width=60, wrap=tk.WORD, state='disabled')
-        self.appreciation_s1_text.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=2)
-        
-        self.appreciation_s2_label = ttk.Label(appreciation_frame, text="Semestre 2:")
-        self.appreciation_s2_label.grid(row=2, column=0, sticky=tk.W, pady=2)
-        self.appreciation_s2_text = tk.Text(appreciation_frame, height=3, width=60, wrap=tk.WORD, state='disabled')
-        self.appreciation_s2_text.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=2)
+        # Zone appréciations (une zone par période, construite dynamiquement)
+        self.appreciation_frame = ttk.LabelFrame(subjects_frame, text="Appréciations de la matière sélectionnée", padding="5")
+        self.appreciation_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.appreciation_frame.columnconfigure(0, weight=1)
+        self._build_appreciation_widgets()
         
         self.subjects_tree.bind('<<TreeviewSelect>>', self._on_subject_select)
+    
+    def _configure_subjects_columns(self):
+        """Configure dynamiquement les colonnes du tableau des matières."""
+        if not hasattr(self, 'subjects_tree'):
+            return
+        
+        columns = ['matiere']
+        headings = {'matiere': 'Matière'}
+        widths = {'matiere': 200}
+        
+        for code in self.period_codes:
+            for prefix, label, width in (
+                ('moyenne', 'Moy.', 80),
+                ('absence', 'Abs.', 80),
+                ('retards', 'Ret.', 70),
+            ):
+                col = f'{prefix}_{code.lower()}'
+                columns.append(col)
+                headings[col] = f'{label} {code}'
+                widths[col] = width
+        
+        self.subjects_tree_columns = tuple(columns)
+        self.subjects_tree.configure(columns=self.subjects_tree_columns)
+        for col in columns:
+            self.subjects_tree.heading(col, text=headings[col])
+            self.subjects_tree.column(col, width=widths[col])
+    
+    def _build_appreciation_widgets(self):
+        """(Re)construit les zones d'appréciation par période (matière sélectionnée)."""
+        if not hasattr(self, 'appreciation_frame'):
+            return
+        for widget in self.appreciation_widgets:
+            widget.destroy()
+        self.appreciation_widgets.clear()
+        self.appreciation_texts = {}
+        
+        row = 0
+        for code in self.period_codes:
+            label = ttk.Label(self.appreciation_frame, text=f"Appréciation {code}:")
+            label.grid(row=row, column=0, sticky=tk.W, pady=2)
+            self.appreciation_widgets.append(label)
+            row += 1
+            
+            text = tk.Text(self.appreciation_frame, height=3, width=60, wrap=tk.WORD, state='disabled')
+            text.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=2)
+            self.appreciation_widgets.append(text)
+            self.appreciation_texts[code] = text
+            row += 1
     
     def _create_general_tab(self):
         """Onglet appréciation générale"""
@@ -266,21 +341,11 @@ class EditionWindow:
         self.notebook.add(general_frame, text="📋 Appréciation générale")
         general_frame.columnconfigure(0, weight=1)
         
-        # S1
-        self.general_s1_frame = ttk.LabelFrame(general_frame, text="Semestre 1", padding="5")
-        self.general_s1_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        self.general_s1_frame.columnconfigure(0, weight=1)
-        
-        self.general_s1_text = tk.Text(self.general_s1_frame, height=6, wrap=tk.WORD)
-        self.general_s1_text.grid(row=0, column=0, sticky=(tk.W, tk.E))
-        
-        # S2
-        self.general_s2_frame = ttk.LabelFrame(general_frame, text="Semestre 2", padding="5")
-        self.general_s2_frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
-        self.general_s2_frame.columnconfigure(0, weight=1)
-        
-        self.general_s2_text = tk.Text(self.general_s2_frame, height=6, wrap=tk.WORD)
-        self.general_s2_text.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        # Conteneur des zones par période (construites dynamiquement)
+        self.general_container = ttk.Frame(general_frame)
+        self.general_container.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        self.general_container.columnconfigure(0, weight=1)
+        self._build_general_widgets()
     
         # Boutons pour traitement du bulletin courant uniquement
         current_actions_frame = ttk.LabelFrame(general_frame, text="Actions sur le bulletin courant", padding="5")
@@ -296,11 +361,30 @@ class EditionWindow:
         
         self.current_generate_btn = ttk.Button(
             current_actions_frame, 
-            text="✨ Générer appréciation S2", 
+            text="✨ Générer appréciation", 
             command=self._generate_current_general,
             state='disabled'
         )
         self.current_generate_btn.grid(row=0, column=1, pady=5)
+    
+    def _build_general_widgets(self):
+        """(Re)construit les zones d'appréciation générale par période."""
+        if not hasattr(self, 'general_container'):
+            return
+        for widget in self.general_widgets:
+            widget.destroy()
+        self.general_widgets.clear()
+        self.general_texts = {}
+        
+        for row, code in enumerate(self.period_codes):
+            frame = ttk.LabelFrame(self.general_container, text=f"Appréciation générale {code}", padding="5")
+            frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+            frame.columnconfigure(0, weight=1)
+            self.general_widgets.append(frame)
+            
+            text = tk.Text(frame, height=6, wrap=tk.WORD)
+            text.grid(row=0, column=0, sticky=(tk.W, tk.E))
+            self.general_texts[code] = text
     
     def _create_action_bar(self, parent, row):
         """Barre d'actions"""
@@ -346,13 +430,15 @@ class EditionWindow:
                 data = raw_data[1:]
             
             self.metadata = metadata
-            self.semester = self._determine_semester(metadata, data)
-            self._apply_semester_ui_state()
+            self.period = self._determine_period(metadata, data)
             
             self.bulletins = []
             for bulletin_data in data:
                 bulletin = Bulletin.from_dict(bulletin_data)
                 self.bulletins.append(bulletin)
+            
+            # Adapter les colonnes/sections aux périodes réellement présentes
+            self._apply_period_ui_state()
             
             self.json_file_path = file_path
             self.current_bulletin_index = 0
@@ -410,33 +496,32 @@ class EditionWindow:
             self.subjects_tree.delete(item)
         
         for nom_matiere, appreciation in bulletin.matieres.items():
-            moyenne_s1 = f"{appreciation.moyenne_s1:.2f}" if appreciation.moyenne_s1 is not None else "-"
-            moyenne_s2 = f"{appreciation.moyenne_s2:.2f}" if appreciation.moyenne_s2 is not None else "-"
-            absence_s1 = f"{appreciation.heures_absence_s1}h" if appreciation.heures_absence_s1 is not None else "-"
-            absence_s2 = f"{appreciation.heures_absence_s2}h" if appreciation.heures_absence_s2 is not None else "-"
+            values = [nom_matiere]
+            for code in self.period_codes:
+                periode = appreciation.get_periode(code)
+                moyenne = periode.moyenne if periode else None
+                absence = periode.heures_absence if periode else None
+                retards = periode.retards if periode else None
+                values.append(f"{moyenne:.2f}" if isinstance(moyenne, (int, float)) else "-")
+                values.append(absence if absence else "-")
+                values.append(str(retards) if retards is not None else "-")
             
-            self.subjects_tree.insert('', tk.END, values=(nom_matiere, moyenne_s1, moyenne_s2, absence_s1, absence_s2))
+            self.subjects_tree.insert('', tk.END, values=tuple(values))
         
         # Vider appréciations - l'affichage se fera lors de la sélection d'une matière
-        self.appreciation_s1_text.config(state='normal')
-        self.appreciation_s1_text.delete('1.0', tk.END)
-        self.appreciation_s1_text.insert('1.0', "Sélectionnez une matière pour voir les appréciations")
-        self.appreciation_s1_text.config(state='disabled')
-        
-        self.appreciation_s2_text.config(state='normal')
-        self.appreciation_s2_text.delete('1.0', tk.END)
-        self.appreciation_s2_text.insert('1.0', "Sélectionnez une matière pour voir les appréciations")
-        self.appreciation_s2_text.config(state='disabled')
+        for text in self.appreciation_texts.values():
+            text.config(state='normal')
+            text.delete('1.0', tk.END)
+            text.insert('1.0', "Sélectionnez une matière pour voir les appréciations")
+            text.config(state='disabled')
     
     def _update_general_display(self, bulletin):
-        """Met à jour les appréciations générales"""
-        self.general_s1_text.delete('1.0', tk.END)
-        if bulletin.appreciation_generale_s1:
-            self.general_s1_text.insert('1.0', bulletin.appreciation_generale_s1)
-        
-        self.general_s2_text.delete('1.0', tk.END)
-        if bulletin.appreciation_generale_s2:
-            self.general_s2_text.insert('1.0', bulletin.appreciation_generale_s2)
+        """Met à jour les appréciations générales (une zone par période)."""
+        for code, text in self.general_texts.items():
+            text.delete('1.0', tk.END)
+            texte = bulletin.get_appreciation_generale(code)
+            if texte:
+                text.insert('1.0', texte)
     
     def _clear_display(self):
         """Vide l'affichage"""
@@ -447,8 +532,8 @@ class EditionWindow:
         for item in self.subjects_tree.get_children():
             self.subjects_tree.delete(item)
         
-        self.general_s1_text.delete('1.0', tk.END)
-        self.general_s2_text.delete('1.0', tk.END)
+        for text in self.general_texts.values():
+            text.delete('1.0', tk.END)
         
         self.save_btn.config(state='disabled')
         self.preprocess_btn.config(state='disabled')
@@ -498,17 +583,13 @@ class EditionWindow:
         appreciation = bulletin.get_matiere(nom_matiere)
         
         if appreciation:
-            self.appreciation_s1_text.config(state='normal')
-            self.appreciation_s1_text.delete('1.0', tk.END)
-            if appreciation.appreciation_s1:
-                self.appreciation_s1_text.insert('1.0', appreciation.appreciation_s1)
-            self.appreciation_s1_text.config(state='disabled')
-            
-            self.appreciation_s2_text.config(state='normal')
-            self.appreciation_s2_text.delete('1.0', tk.END)
-            if appreciation.appreciation_s2:
-                self.appreciation_s2_text.insert('1.0', appreciation.appreciation_s2)
-            self.appreciation_s2_text.config(state='disabled')
+            for code, text in self.appreciation_texts.items():
+                text.config(state='normal')
+                text.delete('1.0', tk.END)
+                periode = appreciation.get_periode(code)
+                if periode and periode.appreciation:
+                    text.insert('1.0', periode.appreciation)
+                text.config(state='disabled')
     
     def _update_navigation_buttons(self):
         """Met à jour boutons navigation"""
@@ -667,7 +748,7 @@ class EditionWindow:
         progress_window.resizable(False, False)
         progress_window.grab_set()
         
-        ttk.Label(progress_window, text="Génération des appréciations générales S2", font=('Arial', 12, 'bold')).pack(pady=10)
+        ttk.Label(progress_window, text=f"Génération des appréciations générales ({self.period.value})", font=('Arial', 12, 'bold')).pack(pady=10)
         
         progress_var = tk.DoubleVar()
         progress_bar = ttk.Progressbar(progress_window, variable=progress_var, maximum=100)
@@ -775,32 +856,19 @@ class EditionWindow:
                 error_count = 0
                 
                 for nom_matiere, matiere in bulletin.matieres.items():
-                    # Prétraitement S1
-                    if matiere.appreciation_s1:
+                    for code, periode in matiere.periodes.items():
+                        if not periode.appreciation:
+                            continue
                         try:
                             preprocessed = openai_service.preprocess_appreciation(
-                                matiere.appreciation_s1,
+                                periode.appreciation,
                                 bulletin.eleve.nom,
                                 bulletin.eleve.prenom
                             )
-                            matiere.appreciation_s1 = preprocessed
+                            periode.appreciation = preprocessed
                             success_count += 1
                         except Exception as e:
-                            print(f"Erreur prétraitement S1 {nom_matiere}: {e}")
-                            error_count += 1
-                    
-                    # Prétraitement S2
-                    if matiere.appreciation_s2:
-                        try:
-                            preprocessed = openai_service.preprocess_appreciation(
-                                matiere.appreciation_s2,
-                                bulletin.eleve.nom,
-                                bulletin.eleve.prenom
-                            )
-                            matiere.appreciation_s2 = preprocessed
-                            success_count += 1
-                        except Exception as e:
-                            print(f"Erreur prétraitement S2 {nom_matiere}: {e}")
+                            print(f"Erreur prétraitement {code} {nom_matiere}: {e}")
                             error_count += 1
                 
                 progress_window.destroy()
@@ -847,19 +915,19 @@ class EditionWindow:
         
         bulletin = self.bulletins[self.current_bulletin_index]
         
-        # Collecter les appréciations du semestre courant par matière
-        source_attr = 'appreciation_s2' if self.semester == Semester.S2 else 'appreciation_s1'
-        target_attr = 'appreciation_generale_s2' if self.semester == Semester.S2 else 'appreciation_generale_s1'
+        # Collecter les appréciations de la période courante par matière
+        code = self.period.value
         appreciations = {}
         for nom_matiere, matiere in bulletin.matieres.items():
-            appreciation_value = getattr(matiere, source_attr, None)
+            periode = matiere.get_periode(code)
+            appreciation_value = periode.appreciation if periode else None
             if appreciation_value and appreciation_value.strip():
                 appreciations[nom_matiere] = appreciation_value
         
         if not appreciations:
             messagebox.showwarning(
                 "Attention", 
-                f"Aucune appréciation {self.semester.value} trouvée pour "
+                f"Aucune appréciation {code} trouvée pour "
                 f"{bulletin.eleve.nom} {bulletin.eleve.prenom}.\n"
                 "Impossible de générer l'appréciation générale."
             )
@@ -888,9 +956,9 @@ class EditionWindow:
                     appreciations,
                     bulletin.eleve.nom,
                     bulletin.eleve.prenom,
-                    semester=self.semester
+                    semester=self.period
                 )
-                setattr(bulletin, target_attr, general_appreciation)
+                bulletin.set_appreciation_generale(code, general_appreciation)
                 
                 progress_window.destroy()
                 
@@ -902,7 +970,7 @@ class EditionWindow:
                 
                 messagebox.showinfo(
                     "Génération terminée", 
-                    f"Appréciation générale {self.semester.value} générée pour "
+                    f"Appréciation générale {code} générée pour "
                     f"{bulletin.eleve.nom} {bulletin.eleve.prenom} !"
                 )
                 
@@ -925,16 +993,17 @@ class EditionWindow:
         
         try:
             if not preserve_generated:
-                # Sauvegarde normale : synchroniser avec les TextBox
+                # Sauvegarde normale : synchroniser avec les TextBox (par période)
                 bulletin = self.bulletins[self.current_bulletin_index]
-                bulletin.appreciation_generale_s1 = self.general_s1_text.get('1.0', tk.END).strip()
-                bulletin.appreciation_generale_s2 = self.general_s2_text.get('1.0', tk.END).strip()
+                for code, text in self.general_texts.items():
+                    contenu = text.get('1.0', tk.END).strip()
+                    bulletin.set_appreciation_generale(code, contenu or None)
             
-            # Sauvegarder tous les bulletins dans le fichier JSON
-            data = [bulletin.to_dict() for bulletin in self.bulletins]
-            
-            with open(self.json_file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            save_output_json(
+                self.bulletins,
+                self.json_file_path,
+                metadata=self._metadata_for_save(),
+            )
             
             self._update_status("✅ Modifications sauvegardées")
             

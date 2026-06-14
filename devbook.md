@@ -970,11 +970,112 @@
 - Job `create-release` (sur tag `v*`) publie AppImage + EXE + checksums `.sha256`
   via `softprops/action-gh-release@v2`.
 
+### Dépôts privé / public
+- **Privé** (`origin`) : `Entonox13/BGRAPP_Pyconseil` — historique de dev complet.
+- **Public** (`public`) : `Entonox13/BGRAPP_pyconseil-public` — commits propres + **releases CI**.
+- Publication : `scripts/publish_public.sh vX.Y.Z` pousse vers `public` et déclenche la release.
+- **URLs utilisateur** (README, badges, clone, issues) : toujours le dépôt **public**
+  (`BGRAPP_pyconseil-public`). Le script de publication réécrit automatiquement toute
+  référence résiduelle au slug privé avant le commit de release.
+- **Workflow publication** :
+  1. Committer (et idéalement pousser) sur `main` du dépôt **privé** — le script exige un arbre propre et copie le **dernier commit**, pas les modifications non commitées.
+  2. `scripts/publish_public.sh vX.Y.Z` → commit propre sur `public-clean`, push vers `public`, tag `vX.Y.Z`.
+  3. GitHub Actions sur le dépôt public compile AppImage + EXE et crée la Release.
+
 ### Dépendances
 - `requirements.txt` (runtime) : ajout de `pandas` et `openpyxl` (lecture des bulletins).
 - `build_config/requirements_build.txt` : aligné sur `google-genai`, `openpyxl`, `pyinstaller>=6.6`.
 
 ---
 
+## Support semestre / trimestre + retards + historique (14/06/2026)
+
+### Contexte
+- L'application ne gérait initialement que le **semestre** (S1, S2) avec des champs fixes (`moyenne_s1`, `heures_absence_s2`, etc.).
+- Les exports PRONOTE en **trimestre** (T1, T2, T3) — vérifiés sur le dossier `COLLEGE/2025-2026/PP/T3` — utilisent un format CSV distinct :
+  - En-têtes : `Élève;H.Abs.;Ret.;Evol.;;N.Notes;Moy. T3;Année;App. A : Appréciations`
+  - Mapping des 4 champs utiles :
+    - absences → `H.Abs.` (ex. `10h00`, `0h30`)
+    - retards → `Ret.` (ex. `1.0` → entier)
+    - moyenne → `Moy. T3` (ex. `15,64`)
+    - appréciation → `App. A : Appréciations`
+- pandas aligne correctement les colonnes malgré les guillemets non échappés dans la colonne `Evol.` (HTML).
+
+### Objectif
+- Un **même pipeline** pour semestre (S1+S2) **ou** trimestre (T1+T2+T3), détecté automatiquement depuis les en-têtes CSV.
+- L'**output JSON** sert d'**historique cumulatif** : à chaque conseil (T1, puis T2, puis T3…), les périodes précédentes sont conservées.
+
+### Modèle de période — `src/utils/semester.py`
+- **`PeriodSystem`** : `SEMESTRE` | `TRIMESTRE`
+- **`Period`** : `S1`, `S2`, `T1`, `T2`, `T3` (avec `label`, `order`, `system`, `previous`)
+- **`Semester`** : alias rétro-compatible (= `Period`)
+- **`detect_period_from_headers()`** : détecte la période courante via `Moy. S1/S2/T1/T2/T3` ou colonne « Rappel de la période précédente »
+- **`infer_period_from_bulletins_data()`** : déduit la période courante depuis le JSON (système **dominant** par nombre d'occurrences de champs, pas de préférence arbitraire trimestre)
+
+### Modèle de données — `src/models/bulletin.py`
+- **`PeriodeData`** : `heures_absence`, `retards`, `moyenne`, `moyenne_min`, `moyenne_max`, `appreciation`
+- **`AppreciationMatiere.periodes`** : `Dict[str, PeriodeData]` (clé = code période)
+- **`parse_retards()`** : `"1.0"` → `1`
+- **`normalize_absence()`** : stockage fidèle `"0h30"`, `"10h00"` (plus de perte des minutes)
+- Sérialisation JSON par période : `MoyenneT3`, `RetardsT3`, `HeuresAbsenceT3`, `AppreciationT3`, etc.
+- **Rétro-compatibilité** : propriétés `moyenne_s1`, `appreciation_s2`, constructeurs legacy, lecture ancien format S1/S2
+
+### Pipeline de traitement
+| Module | Rôle |
+|--------|------|
+| `file_reader.py` | Lecture CSV robuste (fallback `engine='python'`) |
+| `bulletin_processor.py` | Mapping `H.Abs.` / `Ret.` / `Moy. <période>` / `App. A : Appréciations` ; min/max par période ; rappel S1 en mode semestre S2 |
+| `main_processor.py` | Détection système+période ; **fusion historique** via `merge_history_into_bulletins()` si `output.json` existe |
+| `json_generator.py` | Stats par période ; chargement pour fusion |
+| `openai_service.py` | Prétraitement / génération sur la période courante (plus seulement S1/S2) |
+
+### Historique (output JSON)
+- Au traitement d'une période N, si le fichier de sortie existe déjà :
+  1. Charger les bulletins précédents
+  2. Fusionner leurs périodes (par élève + matière) dans les nouveaux bulletins
+  3. **Ne jamais écraser** la période courante
+- Premier passage (ex. T1) : pas d'historique.
+- Métadonnées enrichies : `period_system`, `current_period`, `period_label` (+ `semester` pour compat).
+
+### Interface graphique
+- Colonnes **dynamiques** selon les périodes présentes : Moy. / Abs. / **Ret.** par période
+- Zones d'appréciation et appréciation générale reconstruites par période
+- Boutons IA libellés selon la période courante (ex. « Générer appréciation T3 »)
+- Fichiers : `conseil_window.py`, `edition_window.py`, `main_window.py`
+- **`_apply_period_ui_state()`** : point unique de reconstruction UI (colonnes + widgets par période) ; appelé à l'init et au chargement JSON.
+
+### Persistance JSON (fenêtre édition)
+- **`_save_changes()`** utilise `save_output_json()` (comme `main_processor.py`), pas un `json.dump` direct.
+- **`_metadata_for_save()`** : conserve le bloc `_metadata` existant (`generated_at`, `source_directory`, `matieres_count`…) et met à jour `current_period`, `period_system`, `period_label`, `saved_at`.
+- Indispensable pour que le rechargement retrouve la période courante sans inférer uniquement depuis les données (cas S1+T1 mélangés).
+
+### Correction bug — données semestre + trimestre mélangées
+- **Problème** : sans `period_system` en métadonnées, un JSON contenant S1 et T1 n'affichait que les colonnes trimestre → données S1 inaccessibles.
+- **Correctifs** :
+  - `infer_period_from_bulletins_data` : système dominant par **comptage** des champs (égalité → semestre)
+  - `_compute_period_codes` (GUI) : affiche **toutes** les périodes réellement présentes (`PERIOD_CODES`), sans filtrage par un seul système
+
+### Correction bug — widgets appréciation générale (conseil)
+- **Problème** : `_apply_period_ui_state()` dans `conseil_window.py` ne reconstruisait que les colonnes de synthèse ; les zones d'appréciation générale n'étaient mises à jour qu'au chargement JSON.
+- **Correctif** : `_build_general_appreciation_widgets()` appelé depuis `_apply_period_ui_state()` (aligné sur `edition_window.py`).
+
+### Workflow utilisateur (trimestre)
+- **Principe** : un dossier PRONOTE par trimestre (`T1/`, `T2/`, `T3/`), **un seul** `output.json` partagé ; à chaque traitement, fusion des périodes précédentes.
+- **Important** : toujours enregistrer le JSON au **même chemin** ; même liste d'élèves dans `source.xlsx`.
+1. Conseil T1 : traiter le dossier `T1/` → `output.json` (T1 seul)
+2. Conseil T2 : traiter `T2/` → fusion T1 + T2 dans le même `output.json`
+3. Conseil T3 : traiter `T3/` → fusion T1 + T2 + T3
+
+### Tests
+- `tests/test_processor.py` : assertions absences mises à jour (`"1h00"` au lieu de `1`)
+- 41 tests non-GUI passent (modèles, processeur, RGPD)
+
+### Non implémenté (volontairement)
+- Colonne **`Année`** (moyenne annuelle PRONOTE) : ignorée par défaut
+
+---
+
+**Document version 1.9 - Corrections GUI (widgets général conseil, métadonnées à la sauvegarde édition), workflow publication privé→public (14/06/2026)**
+**Document version 1.8 - Support semestre/trimestre, retards, historique JSON, colonnes GUI dynamiques (14/06/2026)**
 **Document version 1.7 - Packaging PyInstaller onefile + CI (AppImage Linux / EXE Windows), .env portable (13/06/2026)**
 **Document version 1.6 - Refonte multi-fournisseurs (OpenAI/Anthropic/Gemini), deux modèles par rôle, sécurisation des secrets ; LLM locaux retirés et mis en backlog (13/06/2026)**

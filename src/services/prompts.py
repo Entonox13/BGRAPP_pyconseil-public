@@ -17,7 +17,7 @@ Règles:
 - Entoure les phrases/expressions NÉGATIVES avec <span class="negatif">texte</span>
 - Ne modifie PAS le contenu du texte, ajoute seulement les balises
 - Garde la ponctuation et la structure originale
-- Ne balis que les parties vraiment positives ou négatives, pas les neutres
+- Ne balise que les parties vraiment positives ou négatives, pas les neutres
 
 IMPORTANT: Réponds UNIQUEMENT par le texte traité avec les balises HTML, sans aucune explication, préambule ou formatage supplémentaire. Le texte sera inséré tel quel dans l'application.
 

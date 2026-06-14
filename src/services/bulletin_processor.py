@@ -8,14 +8,22 @@ import re
 from typing import List, Dict, Any, Optional, Tuple, Sequence
 # Import conditionnel pour gérer les imports relatifs
 try:
-    from ..models.bulletin import Eleve, AppreciationMatiere, Bulletin, parse_heures_absence, parse_moyenne
+    from ..models.bulletin import (
+        Eleve, AppreciationMatiere, Bulletin,
+        parse_heures_absence, parse_moyenne, parse_retards,
+        normalize_absence, absence_to_hours,
+    )
     from .file_reader import FileReaderError
-    from ..utils.semester import Semester
+    from ..utils.semester import Period
 except ImportError:
     # Fallback pour l'exécution directe via PYTHONPATH
-    from models.bulletin import Eleve, AppreciationMatiere, Bulletin, parse_heures_absence, parse_moyenne
+    from models.bulletin import (
+        Eleve, AppreciationMatiere, Bulletin,
+        parse_heures_absence, parse_moyenne, parse_retards,
+        normalize_absence, absence_to_hours,
+    )
     from services.file_reader import FileReaderError
-    from utils.semester import Semester
+    from utils.semester import Period
 
 
 class BulletinProcessorError(Exception):
@@ -61,11 +69,11 @@ def create_bulletins_from_source(eleves_data: List[Dict[str, Any]]) -> List[Bull
                               eleve_dict.get('Appreciation S2') or 
                               eleve_dict.get('AppreciationS2'))
             
-            bulletin = Bulletin(
-                eleve=eleve,
-                appreciation_generale_s1=appreciation_s1,
-                appreciation_generale_s2=appreciation_s2
-            )
+            bulletin = Bulletin(eleve=eleve)
+            if appreciation_s1:
+                bulletin.set_appreciation_generale("S1", appreciation_s1)
+            if appreciation_s2:
+                bulletin.set_appreciation_generale("S2", appreciation_s2)
             
             bulletins.append(bulletin)
             
@@ -77,10 +85,10 @@ def create_bulletins_from_source(eleves_data: List[Dict[str, Any]]) -> List[Bull
     return bulletins
 
 
-def parse_rappel_s1(rappel_text: str) -> Tuple[Optional[float], Optional[int], Optional[str]]:
+def parse_rappel_periode(rappel_text: str) -> Tuple[Optional[float], Optional[str], Optional[str]]:
     """
-    Parse la colonne 'Rappel de la période précédente : S1' pour extraire
-    moyenne S1, heures d'absence S1 et appréciation S1.
+    Parse une colonne 'Rappel de la période précédente' pour extraire
+    moyenne, heures d'absence et appréciation de la période précédente.
     
     Format attendu: "Moy. : 16,50 - H.Abs : 1h00 - Appréciation..."
     
@@ -88,56 +96,62 @@ def parse_rappel_s1(rappel_text: str) -> Tuple[Optional[float], Optional[int], O
         rappel_text: Texte de la colonne rappel
         
     Returns:
-        Tuple (moyenne_s1, heures_absence_s1, appreciation_s1)
+        Tuple (moyenne, heures_absence, appreciation)
     """
-    if not rappel_text or rappel_text.strip() == '':
+    if not rappel_text or str(rappel_text).strip() == '':
         return None, None, None
     
-    moyenne_s1 = None
-    heures_absence_s1 = None
-    appreciation_s1 = None
+    rappel_text = str(rappel_text)
+    moyenne = None
+    heures_absence = None
+    appreciation = None
     
-    # Rechercher la moyenne S1
+    # Rechercher la moyenne
     match_moy = re.search(r'Moy\.\s*:\s*([0-9,]+)', rappel_text)
     if match_moy:
-        moyenne_s1 = parse_moyenne(match_moy.group(1))
+        moyenne = parse_moyenne(match_moy.group(1))
     
-    # Rechercher les heures d'absence S1
+    # Rechercher les heures d'absence
     match_abs = re.search(r'H\.Abs\s*:\s*([0-9]+h[0-9]*)', rappel_text)
     if match_abs:
-        heures_absence_s1 = parse_heures_absence(match_abs.group(1))
+        heures_absence = normalize_absence(match_abs.group(1))
     
     # L'appréciation est généralement après le dernier tiret
     parts = rappel_text.split(' - ')
     if len(parts) >= 3:
         # Prendre tout après les deux premières parties (Moy et H.Abs)
-        appreciation_s1 = ' - '.join(parts[2:]).strip()
-        if appreciation_s1 == '':
-            appreciation_s1 = None
+        appreciation = ' - '.join(parts[2:]).strip()
+        if appreciation == '':
+            appreciation = None
     elif len(parts) == 2 and not match_abs:
         # Si pas d'heures d'absence mentionnées, l'appréciation est après la moyenne
-        appreciation_s1 = parts[1].strip()
-        if appreciation_s1 == '':
-            appreciation_s1 = None
+        appreciation = parts[1].strip()
+        if appreciation == '':
+            appreciation = None
     elif len(parts) == 1 and not match_moy and not match_abs:
         # Si aucun pattern reconnu, tout le texte est l'appréciation
-        appreciation_s1 = rappel_text.strip()
+        appreciation = rappel_text.strip()
     
-    return moyenne_s1, heures_absence_s1, appreciation_s1
+    return moyenne, heures_absence, appreciation
+
+
+# Alias rétro-compatible
+parse_rappel_s1 = parse_rappel_periode
 
 
 def populate_bulletins_from_csv(bulletins: List[Bulletin], 
                                matiere_data: List[Dict[str, Any]], 
                                matiere_name: str,
-                               semester: Semester) -> None:
+                               period: Period) -> None:
     """
-    Ajoute les appréciations d'une matière aux bulletins existants.
+    Ajoute les appréciations d'une matière aux bulletins existants pour
+    la période courante détectée.
     
     Args:
         bulletins: Liste des bulletins à compléter
         matiere_data: Données de la matière depuis le CSV
         matiere_name: Nom de la matière
-        semester: Semestre détecté pour orienter le mapping des colonnes
+        period: Période détectée (S1/S2/T1/T2/T3) pour le mapping des colonnes
         
     Raises:
         BulletinProcessorError: Si les données sont incohérentes
@@ -148,6 +162,8 @@ def populate_bulletins_from_csv(bulletins: List[Bulletin],
     if not matiere_data:
         # Pas d'erreur si aucune donnée pour cette matière
         return
+    
+    code = period.value  # ex: "T3", "S2"
     
     # Créer un index des bulletins par nom complet d'élève
     bulletins_index = {}
@@ -172,7 +188,7 @@ def populate_bulletins_from_csv(bulletins: List[Bulletin],
             continue
         
         # Nettoyer le nom (supprimer les guillemets)
-        nom_eleve = nom_eleve.strip('"').strip()
+        nom_eleve = str(nom_eleve).strip('"').strip()
         
         # Trouver le bulletin correspondant
         bulletin = bulletins_index.get(nom_eleve)
@@ -181,26 +197,31 @@ def populate_bulletins_from_csv(bulletins: List[Bulletin],
             # (peut arriver si les fichiers ne sont pas parfaitement synchronisés)
             continue
         
-        # Créer l'appréciation pour cette matière
-        appreciation = AppreciationMatiere(matiere=matiere_name)
+        # Récupérer (ou créer) l'appréciation pour cette matière
+        appreciation = bulletin.get_matiere(matiere_name)
+        if appreciation is None:
+            appreciation = AppreciationMatiere(matiere=matiere_name)
+            bulletin.add_matiere(appreciation)
         
-        # Parser les heures d'absence selon le semestre
+        periode_data = appreciation.ensure_periode(code)
+        
+        # Parser les heures d'absence (stockage fidèle "XhMM")
         heures_abs_value = _get_first_value(ligne, ['H.Abs.', 'H Abs.', 'Absences'])
         if heures_abs_value:
-            if semester == Semester.S1:
-                appreciation.heures_absence_s1 = parse_heures_absence(heures_abs_value)
-            else:
-                appreciation.heures_absence_s2 = parse_heures_absence(heures_abs_value)
+            periode_data.heures_absence = normalize_absence(heures_abs_value)
         
-        # Parser la moyenne selon le semestre
-        if semester == Semester.S1:
-            moy_value = _get_first_value(ligne, ['Moy. S1', 'Moyenne S1'])
-            if moy_value is not None:
-                appreciation.moyenne_s1 = parse_moyenne(str(moy_value))
-        else:
-            moy_value = _get_first_value(ligne, ['Moy. S2', 'Moyenne S2'])
-            if moy_value is not None:
-                appreciation.moyenne_s2 = parse_moyenne(str(moy_value))
+        # Parser les retards
+        retards_value = _get_first_value(ligne, ['Ret.', 'Retards', 'Ret'])
+        if retards_value is not None:
+            periode_data.retards = parse_retards(retards_value)
+        
+        # Parser la moyenne de la période courante
+        moy_value = _get_first_value(
+            ligne,
+            [f'Moy. {code}', f'Moyenne {code}', 'Moy.', 'Moyenne']
+        )
+        if moy_value is not None:
+            periode_data.moyenne = parse_moyenne(str(moy_value))
         
         # Parser l'appréciation principale
         appreciation_value = _get_first_value(
@@ -208,28 +229,33 @@ def populate_bulletins_from_csv(bulletins: List[Bulletin],
             ['App. A : Appréciations', 'Appréciations', 'Appreciations']
         )
         if appreciation_value:
-            appreciation_text = str(appreciation_value).strip()
-            if semester == Semester.S1:
-                appreciation.appreciation_s1 = appreciation_text
-            else:
-                appreciation.appreciation_s2 = appreciation_text
+            periode_data.appreciation = str(appreciation_value).strip()
         
-        # En S2, parser le rappel S1 (moyenne/heures/appreciation)
-        if semester == Semester.S2:
-            rappel_s1 = ligne.get('Rappel de la période précédente : S1')
-            if rappel_s1:
-                moy_s1, abs_s1, app_s1 = parse_rappel_s1(rappel_s1)
-                appreciation.moyenne_s1 = moy_s1
-                appreciation.heures_absence_s1 = abs_s1
-                appreciation.appreciation_s1 = app_s1
-        
-        # Ajouter l'appréciation au bulletin
-        bulletin.add_matiere(appreciation)
+        # Parser un éventuel rappel de la période précédente (mode semestre S2)
+        previous = period.previous
+        if previous is not None:
+            rappel_text = _get_first_value(
+                ligne,
+                [
+                    f'Rappel de la période précédente : {previous.value}',
+                    'Rappel de la période précédente : S1',
+                ]
+            )
+            if rappel_text:
+                moy_prev, abs_prev, app_prev = parse_rappel_periode(rappel_text)
+                prev_data = appreciation.ensure_periode(previous.value)
+                if moy_prev is not None:
+                    prev_data.moyenne = moy_prev
+                if abs_prev is not None:
+                    prev_data.heures_absence = abs_prev
+                if app_prev is not None:
+                    prev_data.appreciation = app_prev
 
 
 def calculate_min_max_moyennes(bulletins: List[Bulletin]) -> None:
     """
-    Calcule les moyennes min/max par matière et semestre pour tous les bulletins.
+    Calcule les moyennes min/max par matière et par période pour tous
+    les bulletins.
     
     Args:
         bulletins: Liste des bulletins à traiter
@@ -242,36 +268,36 @@ def calculate_min_max_moyennes(bulletins: List[Bulletin]) -> None:
     for bulletin in bulletins:
         matieres.update(bulletin.matieres.keys())
     
-    # Pour chaque matière, calculer min/max par semestre
+    # Pour chaque matière, calculer min/max par période présente
     for matiere_name in matieres:
-        # Collecter les moyennes S1 et S2
-        moyennes_s1 = []
-        moyennes_s2 = []
-        
+        # Identifier les périodes présentes pour cette matière
+        codes = set()
         for bulletin in bulletins:
             appreciation = bulletin.get_matiere(matiere_name)
             if appreciation:
-                if appreciation.moyenne_s1 is not None:
-                    moyennes_s1.append(appreciation.moyenne_s1)
-                if appreciation.moyenne_s2 is not None:
-                    moyennes_s2.append(appreciation.moyenne_s2)
+                codes.update(appreciation.periodes.keys())
         
-        # Calculer min/max S1
-        min_s1 = min(moyennes_s1) if moyennes_s1 else None
-        max_s1 = max(moyennes_s1) if moyennes_s1 else None
-        
-        # Calculer min/max S2
-        min_s2 = min(moyennes_s2) if moyennes_s2 else None
-        max_s2 = max(moyennes_s2) if moyennes_s2 else None
-        
-        # Mettre à jour tous les bulletins pour cette matière
-        for bulletin in bulletins:
-            appreciation = bulletin.get_matiere(matiere_name)
-            if appreciation:
-                appreciation.moyenne_s1_min = min_s1
-                appreciation.moyenne_s1_max = max_s1
-                appreciation.moyenne_s2_min = min_s2
-                appreciation.moyenne_s2_max = max_s2
+        for code in codes:
+            moyennes = []
+            for bulletin in bulletins:
+                appreciation = bulletin.get_matiere(matiere_name)
+                if not appreciation:
+                    continue
+                periode = appreciation.get_periode(code)
+                if periode and periode.moyenne is not None:
+                    moyennes.append(periode.moyenne)
+            
+            min_val = min(moyennes) if moyennes else None
+            max_val = max(moyennes) if moyennes else None
+            
+            for bulletin in bulletins:
+                appreciation = bulletin.get_matiere(matiere_name)
+                if not appreciation:
+                    continue
+                periode = appreciation.get_periode(code)
+                if periode:
+                    periode.moyenne_min = min_val
+                    periode.moyenne_max = max_val
 
 
 def validate_bulletins_consistency(bulletins: List[Bulletin]) -> List[str]:
@@ -303,14 +329,18 @@ def validate_bulletins_consistency(bulletins: List[Bulletin]) -> List[str]:
         nom_eleve = f"{bulletin.eleve.nom} {bulletin.eleve.prenom}"
         
         for matiere_name, appreciation in bulletin.matieres.items():
-            # Vérifier que les moyennes sont dans une plage raisonnable
-            for semestre, moyenne in [('S1', appreciation.moyenne_s1), ('S2', appreciation.moyenne_s2)]:
-                if moyenne is not None and (moyenne < 0 or moyenne > 20):
-                    warnings.append(f"{nom_eleve} - {matiere_name} {semestre}: Moyenne suspecte ({moyenne})")
-            
-            # Vérifier que les heures d'absence ne sont pas excessives
-            for semestre, heures in [('S1', appreciation.heures_absence_s1), ('S2', appreciation.heures_absence_s2)]:
+            for code, periode in appreciation.periodes.items():
+                # Vérifier que les moyennes sont dans une plage raisonnable
+                if periode.moyenne is not None and (periode.moyenne < 0 or periode.moyenne > 20):
+                    warnings.append(
+                        f"{nom_eleve} - {matiere_name} {code}: Moyenne suspecte ({periode.moyenne})"
+                    )
+                
+                # Vérifier que les heures d'absence ne sont pas excessives
+                heures = absence_to_hours(periode.heures_absence)
                 if heures is not None and heures > 100:  # Plus de 100h semble suspect
-                    warnings.append(f"{nom_eleve} - {matiere_name} {semestre}: Heures d'absence élevées ({heures}h)")
+                    warnings.append(
+                        f"{nom_eleve} - {matiere_name} {code}: Heures d'absence élevées ({periode.heures_absence})"
+                    )
     
     return warnings 

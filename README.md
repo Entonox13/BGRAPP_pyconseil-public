@@ -33,15 +33,15 @@ Une application Python avec interface graphique pour centraliser et traiter les 
 
 ### 📦 Téléchargement des exécutables (Recommandé)
 
-Pour utiliser l'application sans installer Python, téléchargez directement les exécutables depuis les [dernières releases GitHub](https://github.com/Entonox13/BGRAPP_Pyconseil/releases/latest) :
+Pour utiliser l'application sans installer Python, téléchargez directement les exécutables depuis les [dernières releases GitHub](https://github.com/Entonox13/BGRAPP_pyconseil-public/releases/latest) :
 
 - **Linux** : AppImage portable (`.AppImage`) ou exécutable Linux
 - **Windows** : Exécutable portable (`.exe`)
 
-[![Dernière Release](https://img.shields.io/github/v/release/Entonox13/BGRAPP_Pyconseil?label=Version&style=flat-square)](https://github.com/Entonox13/BGRAPP_Pyconseil/releases/latest)
-[![Téléchargements](https://img.shields.io/github/downloads/Entonox13/BGRAPP_Pyconseil/total?label=Téléchargements&style=flat-square)](https://github.com/Entonox13/BGRAPP_Pyconseil/releases)
+[![Dernière Release](https://img.shields.io/github/v/release/Entonox13/BGRAPP_pyconseil-public?label=Version&style=flat-square)](https://github.com/Entonox13/BGRAPP_pyconseil-public/releases/latest)
+[![Téléchargements](https://img.shields.io/github/downloads/Entonox13/BGRAPP_pyconseil-public/total?label=Téléchargements&style=flat-square)](https://github.com/Entonox13/BGRAPP_pyconseil-public/releases)
 
-**🔗 Lien direct** : [Télécharger la dernière release](https://github.com/Entonox13/BGRAPP_Pyconseil/releases/latest)
+**🔗 Lien direct** : [Télécharger la dernière release](https://github.com/Entonox13/BGRAPP_pyconseil-public/releases/latest)
 
 > 💡 **Note** : Les exécutables sont automatiquement créés par GitHub Actions à chaque commit. Les releases officielles sont créées lors de la création de tags (ex: `v1.0.0`).
 
@@ -54,8 +54,8 @@ Pour utiliser l'application sans installer Python, téléchargez directement les
 ### Installation des dépendances
 ```bash
 # Cloner le repository
-git clone https://github.com/Entonox13/BGRAPP_Pyconseil.git
-cd BGRAPP_Pyconseil
+git clone https://github.com/Entonox13/BGRAPP_pyconseil-public.git
+cd BGRAPP_pyconseil-public
 
 # Installer les dépendances
 pip install -r requirements.txt
@@ -300,7 +300,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 
 ## 📞 Support
 
-- **Issues** : [GitHub Issues](https://github.com/Entonox13/BGRAPP_Pyconseil/issues)
+- **Issues** : [GitHub Issues](https://github.com/Entonox13/BGRAPP_pyconseil-public/issues)
 - **Documentation** : Dossier `docs/`
 - **Configuration IA** : [README_CONFIG_IA.md](README_CONFIG_IA.md)
 - **Email** : bgrapp@proton.me

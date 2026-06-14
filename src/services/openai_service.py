@@ -71,13 +71,13 @@ except ImportError:
 # Import conditionnel
 try:
     from ..models.bulletin import Bulletin
-    from ..utils.semester import Semester
+    from ..utils.semester import Period, Semester
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from models.bulletin import Bulletin
-    from utils.semester import Semester
+    from utils.semester import Period, Semester
 
 # Import des prompts
 try:
@@ -410,48 +410,32 @@ class AIService:
         error_count = 0
         total_operations = 0
         
-        # Calculer le nombre total d'opérations
+        # Calculer le nombre total d'opérations (toutes périodes confondues)
         for bulletin in bulletins:
             for matiere in bulletin.matieres.values():
-                if matiere.appreciation_s1:
-                    total_operations += 1
-                if matiere.appreciation_s2:
-                    total_operations += 1
+                for periode in matiere.periodes.values():
+                    if periode.appreciation:
+                        total_operations += 1
         
         current_operation = 0
         
         for bulletin in bulletins:
             for nom_matiere, matiere in bulletin.matieres.items():
-                # Prétraitement S1
-                if matiere.appreciation_s1:
+                for code, periode in matiere.periodes.items():
+                    if not periode.appreciation:
+                        continue
                     try:
                         preprocessed = self.preprocess_appreciation(
-                            matiere.appreciation_s1, 
-                            bulletin.eleve.nom, 
+                            periode.appreciation,
+                            bulletin.eleve.nom,
                             bulletin.eleve.prenom
                         )
-                        matiere.appreciation_s1 = preprocessed
+                        periode.appreciation = preprocessed
                         success_count += 1
                     except Exception as e:
-                        self.logger.error(f"Erreur prétraitement S1 {nom_matiere} pour {bulletin.eleve.nom}: {e}")
-                        error_count += 1
-                    
-                    current_operation += 1
-                    if progress_callback:
-                        progress_callback(current_operation, total_operations)
-                
-                # Prétraitement S2
-                if matiere.appreciation_s2:
-                    try:
-                        preprocessed = self.preprocess_appreciation(
-                            matiere.appreciation_s2, 
-                            bulletin.eleve.nom, 
-                            bulletin.eleve.prenom
+                        self.logger.error(
+                            f"Erreur prétraitement {code} {nom_matiere} pour {bulletin.eleve.nom}: {e}"
                         )
-                        matiere.appreciation_s2 = preprocessed
-                        success_count += 1
-                    except Exception as e:
-                        self.logger.error(f"Erreur prétraitement S2 {nom_matiere} pour {bulletin.eleve.nom}: {e}")
                         error_count += 1
                     
                     current_operation += 1
@@ -462,14 +446,15 @@ class AIService:
     
     def generate_all_general_appreciations(self,
                                            bulletins: List[Bulletin],
-                                           semester: Semester = Semester.S2,
+                                           semester: Period = Period.S2,
                                            progress_callback=None) -> Tuple[int, int]:
         """
-        Génère les appréciations générales S2 pour tous les bulletins
+        Génère les appréciations générales de la période ciblée pour tous
+        les bulletins.
         
         Args:
             bulletins: Liste des bulletins à traiter
-            semester: Semestre ciblé pour la génération
+            semester: Période ciblée pour la génération (S1/S2/T1/T2/T3)
             progress_callback: Fonction appelée avec (current, total) pour le suivi de progression
             
         Returns:
@@ -478,16 +463,17 @@ class AIService:
         success_count = 0
         error_count = 0
         total_bulletins = len(bulletins)
+        period = semester if isinstance(semester, Period) else Period.from_code(str(semester)) or Period.S2
+        code = period.value
         
         for i, bulletin in enumerate(bulletins):
             try:
-                # Collecter les appréciations S2 par matière
+                # Collecter les appréciations de la période ciblée par matière
                 appreciations = {}
-                source_attr = 'appreciation_s2' if semester == Semester.S2 else 'appreciation_s1'
-                target_attr = 'appreciation_generale_s2' if semester == Semester.S2 else 'appreciation_generale_s1'
                 
                 for nom_matiere, matiere in bulletin.matieres.items():
-                    appreciation_value = getattr(matiere, source_attr, None)
+                    periode = matiere.get_periode(code)
+                    appreciation_value = periode.appreciation if periode else None
                     if appreciation_value and appreciation_value.strip():
                         appreciations[nom_matiere] = appreciation_value
                 
@@ -496,13 +482,13 @@ class AIService:
                         appreciations, 
                         bulletin.eleve.nom, 
                         bulletin.eleve.prenom,
-                        semester=semester
+                        semester=period
                     )
-                    setattr(bulletin, target_attr, general_appreciation)
+                    bulletin.set_appreciation_generale(code, general_appreciation)
                     success_count += 1
                 else:
                     self.logger.warning(
-                        f"Aucune appréciation {semester.value} trouvée pour {bulletin.eleve.nom}"
+                        f"Aucune appréciation {code} trouvée pour {bulletin.eleve.nom}"
                     )
                     error_count += 1
                 

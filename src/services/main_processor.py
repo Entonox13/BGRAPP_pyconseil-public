@@ -5,6 +5,7 @@ Coordonne la lecture des fichiers, le traitement et la génération JSON.
 """
 
 import os
+import copy
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
 # Import conditionnel pour gérer les imports relatifs
@@ -19,9 +20,9 @@ try:
         calculate_min_max_moyennes, validate_bulletins_consistency,
         BulletinProcessorError
     )
-    from .json_generator import save_output_json, JsonGeneratorError
+    from .json_generator import save_output_json, load_bulletins_from_json, JsonGeneratorError
     from ..models.bulletin import Bulletin
-    from ..utils.semester import Semester, detect_semester_from_matiere_data
+    from ..utils.semester import Period, detect_period_from_matiere_data
 except ImportError:
     # Fallback pour l'exécution directe via PYTHONPATH
     from services.file_reader import (
@@ -34,9 +35,9 @@ except ImportError:
         calculate_min_max_moyennes, validate_bulletins_consistency,
         BulletinProcessorError
     )
-    from services.json_generator import save_output_json, JsonGeneratorError
+    from services.json_generator import save_output_json, load_bulletins_from_json, JsonGeneratorError
     from models.bulletin import Bulletin
-    from utils.semester import Semester, detect_semester_from_matiere_data
+    from utils.semester import Period, detect_period_from_matiere_data
 
 
 class MainProcessorError(Exception):
@@ -44,9 +45,59 @@ class MainProcessorError(Exception):
     pass
 
 
+def merge_history_into_bulletins(bulletins: List[Bulletin],
+                                 previous_bulletins: List[Bulletin],
+                                 current_code: str) -> None:
+    """
+    Fusionne l'historique des périodes précédentes (issu d'un output JSON
+    existant) dans les bulletins fraîchement construits.
+
+    Les données de la période courante (`current_code`) ne sont jamais
+    écrasées : seules les périodes antérieures absentes sont reportées.
+
+    Args:
+        bulletins: Bulletins de la période courante (modifiés sur place)
+        previous_bulletins: Bulletins chargés depuis l'output existant
+        current_code: Code de la période courante (ex: "T3")
+    """
+    if not previous_bulletins:
+        return
+
+    prev_index = {
+        f"{b.eleve.nom} {b.eleve.prenom}": b for b in previous_bulletins
+    }
+
+    for bulletin in bulletins:
+        key = f"{bulletin.eleve.nom} {bulletin.eleve.prenom}"
+        previous = prev_index.get(key)
+        if not previous:
+            continue
+
+        # Reporter les appréciations générales des périodes précédentes
+        for code, texte in previous.appreciations_generales.items():
+            if code == current_code:
+                continue
+            if code not in bulletin.appreciations_generales:
+                bulletin.appreciations_generales[code] = texte
+
+        # Reporter les données par matière/période
+        for matiere_name, prev_app in previous.matieres.items():
+            current_app = bulletin.get_matiere(matiere_name)
+            if current_app is None:
+                # Matière absente de l'export courant : conserver l'historique (copie)
+                bulletin.add_matiere(copy.deepcopy(prev_app))
+                continue
+            for code, periode in prev_app.periodes.items():
+                if code == current_code:
+                    continue
+                if code not in current_app.periodes:
+                    current_app.periodes[code] = copy.deepcopy(periode)
+
+
 def process_directory_to_json(source_directory: str, 
                              output_path: str,
-                             validate_data: bool = True) -> Dict[str, Any]:
+                             validate_data: bool = True,
+                             merge_history: bool = True) -> Dict[str, Any]:
     """
     Traite un répertoire complet et génère le fichier JSON de sortie.
     
@@ -73,7 +124,9 @@ def process_directory_to_json(source_directory: str,
         'matieres_count': 0,
         'warnings': [],
         'output_file': output_path,
-        'semester': Semester.S2.value
+        'semester': Period.S2.value,
+        'period': Period.S2.value,
+        'period_system': Period.S2.system.value
     }
     
     try:
@@ -94,8 +147,8 @@ def process_directory_to_json(source_directory: str,
         # 4. Traiter chaque fichier CSV de matière
         csv_files = validation['csv_files']
         matieres_traitees = []
-        semester = Semester.S2
-        semester_detected = False
+        period = Period.S2
+        period_detected = False
         
         for csv_file in csv_files:
             matiere_name = extract_matiere_name_from_filename(csv_file)
@@ -103,11 +156,11 @@ def process_directory_to_json(source_directory: str,
             try:
                 matiere_data = read_csv_matiere(csv_file, matiere_name)
                 
-                if not semester_detected and matiere_data:
-                    semester = detect_semester_from_matiere_data(matiere_data)
-                    semester_detected = True
+                if not period_detected and matiere_data:
+                    period = detect_period_from_matiere_data(matiere_data)
+                    period_detected = True
                 
-                populate_bulletins_from_csv(bulletins, matiere_data, matiere_name, semester)
+                populate_bulletins_from_csv(bulletins, matiere_data, matiere_name, period)
                 matieres_traitees.append(matiere_name)
                 
             except (FileReaderError, BulletinProcessorError) as e:
@@ -115,20 +168,33 @@ def process_directory_to_json(source_directory: str,
                 result['warnings'].append(f"Erreur matière {matiere_name}: {str(e)}")
         
         result['matieres_count'] = len(matieres_traitees)
-        result['semester'] = semester.value
+        result['semester'] = period.value
+        result['period'] = period.value
+        result['period_system'] = period.system.value
         
-        # 5. Calculer les moyennes min/max
+        # 5. Fusionner l'historique des périodes précédentes (output existant)
+        if merge_history and os.path.exists(output_path):
+            try:
+                previous_bulletins = load_bulletins_from_json(output_path)
+                merge_history_into_bulletins(bulletins, previous_bulletins, period.value)
+            except JsonGeneratorError as e:
+                result['warnings'].append(f"Historique ignoré (output illisible): {str(e)}")
+        
+        # 6. Calculer les moyennes min/max (après fusion historique)
         calculate_min_max_moyennes(bulletins)
         
-        # 6. Validation optionnelle des données
+        # 7. Validation optionnelle des données
         if validate_data:
             warnings = validate_bulletins_consistency(bulletins)
             result['warnings'].extend(warnings)
         
-        # 7. Sauvegarder le JSON
+        # 8. Sauvegarder le JSON
         metadata = {
-            "semester": semester.value,
-            "semester_label": semester.label,
+            "semester": period.value,
+            "current_period": period.value,
+            "period_system": period.system.value,
+            "period_label": period.label,
+            "semester_label": period.label,
             "generated_at": datetime.utcnow().isoformat(timespec="seconds"),
             "source_directory": os.path.abspath(source_directory),
             "matieres_count": len(matieres_traitees)
@@ -159,8 +225,8 @@ def process_single_bulletin(source_directory: str, nom_eleve: str) -> Bulletin:
         MainProcessorError: Si l'élève n'est pas trouvé ou erreur
     """
     try:
-        # Lire tous les bulletins
-        result = process_directory_to_json(source_directory, "/tmp/temp.json")
+        # Lire tous les bulletins (sans fusion d'historique sur le fichier temporaire)
+        result = process_directory_to_json(source_directory, "/tmp/temp.json", merge_history=False)
         
         # Recharger les bulletins depuis le fichier temporaire (pas optimal mais simple)
         try:

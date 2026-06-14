@@ -120,7 +120,7 @@ class TestBulletinProcessor:
         moyenne, heures, appreciation = parse_rappel_s1(rappel)
         
         assert moyenne == 16.5
-        assert heures == 1
+        assert heures == "1h00"  # Stockage fidèle des heures/minutes
         assert "Très bon travail" in appreciation
     
     def test_parse_rappel_s1_variations(self):
@@ -128,7 +128,7 @@ class TestBulletinProcessor:
         # Avec heures d'absence
         moy, abs, app = parse_rappel_s1("Moy. : 12,00 - H.Abs : 2h30 - Bien.")
         assert moy == 12.0
-        assert abs == 2  # Parser retourne les heures entières
+        assert abs == "2h30"  # Stockage fidèle (heures + minutes)
         
         # Sans heures d'absence
         moy, abs, app = parse_rappel_s1("Moy. : 15,25 - Excellent travail.")
@@ -174,7 +174,7 @@ class TestBulletinProcessor:
         appreciation = bulletins[0].get_matiere("Mathematiques")
         assert appreciation is not None
         assert appreciation.moyenne_s1 == 14.5
-        assert appreciation.heures_absence_s1 == 1
+        assert appreciation.heures_absence_s1 == "1h00"
         assert appreciation.appreciation_s1 == "Bon départ au collège"
         assert appreciation.moyenne_s2 is None
     

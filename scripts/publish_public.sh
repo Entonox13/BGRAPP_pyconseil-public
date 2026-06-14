@@ -21,6 +21,9 @@ SRC_BRANCH="${2:-main}"
 PUBLIC_REMOTE="public"
 PUBLIC_BRANCH="main"
 WORK_BRANCH="public-clean"
+# Dépôt public (releases CI) — ne pas confondre avec origin (privé)
+PUBLIC_REPO_SLUG="Entonox13/BGRAPP_pyconseil-public"
+PRIVATE_REPO_SLUG="Entonox13/BGRAPP_Pyconseil"
 
 err() { echo "❌ $*" >&2; exit 1; }
 
@@ -45,6 +48,16 @@ fi
 #    git rm ne touche que les fichiers suivis : .env et autres fichiers ignorés restent intacts.
 git rm -rqf . >/dev/null 2>&1 || true
 git checkout "$SRC_BRANCH" -- .
+# Liens GitHub du README / docs : toujours pointer vers le dépôt PUBLIC (releases)
+if grep -rq "$PRIVATE_REPO_SLUG" README.md GITHUB_README_TEMPLATE.md RELEASES.md releases/README.md 2>/dev/null; then
+  echo "🔗 Réécriture des URLs GitHub ($PRIVATE_REPO_SLUG → $PUBLIC_REPO_SLUG)..."
+  for f in README.md GITHUB_README_TEMPLATE.md RELEASES.md releases/README.md; do
+    [[ -f "$f" ]] || continue
+    sed -i "s|$PRIVATE_REPO_SLUG|$PUBLIC_REPO_SLUG|g" "$f"
+    sed -i "s|BGRAPP_Pyconseil\\.git|BGRAPP_pyconseil-public.git|g" "$f"
+    sed -i "s|cd BGRAPP_Pyconseil|cd BGRAPP_pyconseil-public|g" "$f"
+  done
+fi
 git add -A
 
 # 5. Commit de release (s'il y a quelque chose à publier)

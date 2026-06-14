@@ -641,10 +641,10 @@ class MainWindow:
         return Semester.S2
 
     def _remember_semester(self, semester: Semester, log: bool = True):
-        """Stocke le semestre détecté pour les sous-fenêtres."""
+        """Stocke la période détectée pour les sous-fenêtres."""
         self._last_semester = semester
         if log:
-            self._log_message(f"🗂️ Semestre détecté: {semester.label}", "info")
+            self._log_message(f"🗂️ Période détectée: {semester.label}", "info")
     
     def _open_config_window(self):
         """Ouvre la fenêtre de configuration IA"""

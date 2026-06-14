@@ -75,8 +75,20 @@ def read_csv_matiere(file_path: str, matiere_name: str) -> List[Dict[str, Any]]:
         raise FileReaderError(f"Fichier matière non trouvé: {file_path}")
     
     try:
-        # Lire le fichier CSV avec séparateur point-virgule
-        df = pd.read_csv(file_path, sep=';', encoding='utf-8')
+        # Lire le fichier CSV avec séparateur point-virgule.
+        # Les exports PRONOTE contiennent parfois des guillemets non
+        # échappés (HTML dans la colonne Evol.) : on tente d'abord le
+        # parseur C standard, puis un parseur Python plus tolérant.
+        try:
+            df = pd.read_csv(file_path, sep=';', encoding='utf-8')
+        except Exception:
+            df = pd.read_csv(
+                file_path,
+                sep=';',
+                encoding='utf-8',
+                engine='python',
+                on_bad_lines='skip'
+            )
         
         # Valider la présence de la colonne 'Élève'
         if 'Élève' not in df.columns:

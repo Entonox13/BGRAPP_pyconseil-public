@@ -231,45 +231,39 @@ def generate_summary_stats(bulletins: List[Bulletin]) -> Dict[str, Any]:
         'matieres_list': get_all_matieres(bulletins),
     }
     
-    # Compter les appréciations par semestre
-    appreciation_s1_count = 0
-    appreciation_s2_count = 0
-    
+    # Compter les appréciations générales par période
+    appreciation_generale_counts: Dict[str, int] = {}
     for bulletin in bulletins:
-        if bulletin.appreciation_generale_s1:
-            appreciation_s1_count += 1
-        if bulletin.appreciation_generale_s2:
-            appreciation_s2_count += 1
+        for code, texte in bulletin.appreciations_generales.items():
+            if texte:
+                appreciation_generale_counts[code] = appreciation_generale_counts.get(code, 0) + 1
+    stats['appreciation_generale_counts'] = appreciation_generale_counts
     
-    stats['appreciation_generale_s1_count'] = appreciation_s1_count
-    stats['appreciation_generale_s2_count'] = appreciation_s2_count
-    
-    # Statistiques par matière
+    # Statistiques par matière (par période présente)
     matiere_stats = {}
     for matiere in get_all_matieres(bulletins):
         bulletins_avec_matiere = 0
-        moyennes_s1 = []
-        moyennes_s2 = []
+        moyennes_par_periode: Dict[str, list] = {}
         
         for bulletin in bulletins:
             appreciation = bulletin.get_matiere(matiere)
             if appreciation:
                 bulletins_avec_matiere += 1
-                if appreciation.moyenne_s1 is not None:
-                    moyennes_s1.append(appreciation.moyenne_s1)
-                if appreciation.moyenne_s2 is not None:
-                    moyennes_s2.append(appreciation.moyenne_s2)
+                for code, periode in appreciation.periodes.items():
+                    if periode.moyenne is not None:
+                        moyennes_par_periode.setdefault(code, []).append(periode.moyenne)
+        
+        periode_stats = {}
+        for code, valeurs in moyennes_par_periode.items():
+            entry = {'count': len(valeurs)}
+            if valeurs:
+                entry['avg'] = sum(valeurs) / len(valeurs)
+            periode_stats[code] = entry
         
         matiere_stats[matiere] = {
             'bulletins_count': bulletins_avec_matiere,
-            'moyenne_s1_count': len(moyennes_s1),
-            'moyenne_s2_count': len(moyennes_s2),
+            'periodes': periode_stats,
         }
-        
-        if moyennes_s1:
-            matiere_stats[matiere]['moyenne_s1_avg'] = sum(moyennes_s1) / len(moyennes_s1)
-        if moyennes_s2:
-            matiere_stats[matiere]['moyenne_s2_avg'] = sum(moyennes_s2) / len(moyennes_s2)
     
     stats['matieres_stats'] = matiere_stats
     

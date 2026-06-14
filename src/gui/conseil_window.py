@@ -14,20 +14,28 @@ from typing import List, Optional, Dict, Any
 
 # Import conditionnel
 try:
-    from ..models.bulletin import Bulletin, Eleve, AppreciationMatiere
+    from ..models.bulletin import Bulletin, Eleve, AppreciationMatiere, PERIOD_CODES
     from ..utils.semester import (
+        Period,
         Semester,
-        infer_semester_from_bulletins_data,
-        semester_from_metadata,
+        PeriodSystem,
+        periods_for_system,
+        infer_period_from_bulletins_data,
+        period_from_metadata,
+        period_system_from_metadata,
     )
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from models.bulletin import Bulletin, Eleve, AppreciationMatiere
+    from models.bulletin import Bulletin, Eleve, AppreciationMatiere, PERIOD_CODES
     from utils.semester import (
+        Period,
         Semester,
-        infer_semester_from_bulletins_data,
-        semester_from_metadata,
+        PeriodSystem,
+        periods_for_system,
+        infer_period_from_bulletins_data,
+        period_from_metadata,
+        period_system_from_metadata,
     )
 
 
@@ -35,15 +43,16 @@ class ConseilWindow:
     """Fenêtre conseil de classe"""
     
     def __init__(self, parent_window=None, json_file_path: Optional[str] = None,
-                 initial_semester: Optional[Semester] = None):
+                 initial_semester: Optional[Period] = None):
         self.parent_window = parent_window
         self.json_file_path = json_file_path
         self.bulletins: List[Bulletin] = []
         self.current_bulletin_index: int = 0
         self.conseil_data: Dict[str, Any] = {}
-        self.semester: Semester = initial_semester or Semester.S2
+        self.period: Period = initial_semester or Period.S2
+        self.period_codes: List[str] = self._default_period_codes()
         self.metadata: Dict[str, Any] = {}
-        self._s2_controls_hidden = False
+        self.general_widgets: List[Any] = []
         
         # Créer la fenêtre
         self.root = tk.Toplevel() if parent_window else tk.Tk()
@@ -59,7 +68,7 @@ class ConseilWindow:
         
         self._setup_styles()
         self._create_interface()
-        self._apply_semester_ui_state()
+        self._apply_period_ui_state()
         
         if json_file_path and os.path.exists(json_file_path):
             self._load_bulletins_from_file(json_file_path)
@@ -205,31 +214,60 @@ class ConseilWindow:
         
         self._create_action_bar(main_frame, 2)
 
-    def _determine_semester(self, metadata: Optional[Dict[str, Any]], data: List[Dict[str, Any]]) -> Semester:
-        """Détermine le semestre actif à partir des métadonnées ou du contenu du JSON."""
-        semester = semester_from_metadata(metadata)
-        if semester:
-            return semester
-        return infer_semester_from_bulletins_data(data)
+    @property
+    def semester(self) -> Period:
+        """Alias rétro-compatible de la période courante."""
+        return self.period
 
-    def _apply_semester_ui_state(self):
-        """Adapte la vue conseil selon le semestre."""
+    @semester.setter
+    def semester(self, value: Period) -> None:
+        self.period = value
+
+    def _default_period_codes(self) -> List[str]:
+        """Codes de période par défaut selon le système courant."""
+        system = self.period.system if hasattr(self, 'period') else PeriodSystem.SEMESTRE
+        return [p.value for p in periods_for_system(system)]
+
+    def _determine_period(self, metadata: Optional[Dict[str, Any]], data: List[Dict[str, Any]]) -> Period:
+        """Détermine la période active à partir des métadonnées ou du contenu du JSON."""
+        period = period_from_metadata(metadata)
+        if period:
+            return period
+        return infer_period_from_bulletins_data(data)
+
+    def _compute_period_codes(self) -> List[str]:
+        """
+        Calcule les codes de période à afficher : toutes les périodes
+        réellement présentes dans les bulletins (ordre canonique).
+
+        On affiche toute période présente, quel que soit son système, afin
+        de ne jamais masquer de données (ex: des données S1 mélangées à une
+        structure trimestre ne doivent pas disparaître).
+        """
+        present = set()
+        for bulletin in self.bulletins:
+            for code, texte in bulletin.appreciations_generales.items():
+                if texte:
+                    present.add(code)
+            for appreciation in bulletin.matieres.values():
+                present.update(appreciation.periodes.keys())
+        
+        if present:
+            return [c for c in PERIOD_CODES if c in present]
+        
+        # Aucune donnée : colonnes par défaut du système (métadonnées/période)
+        system = period_system_from_metadata(self.metadata) or self.period.system
+        return [p.value for p in periods_for_system(system)]
+
+    def _apply_period_ui_state(self):
+        """Reconstruit les colonnes/sections selon les périodes présentes."""
         if not hasattr(self, 'synthesis_tree'):
             return
         
-        s1_columns = ('matiere', 'moy_s1', 'abs_s1')
-        if self.semester == Semester.S1:
-            self.synthesis_tree.configure(displaycolumns=s1_columns)
-            if not self._s2_controls_hidden:
-                self.general_s2_label.grid_remove()
-                self.general_s2_text.grid_remove()
-                self._s2_controls_hidden = True
-        else:
-            self.synthesis_tree.configure(displaycolumns=self.synthesis_tree_columns)
-            if self._s2_controls_hidden:
-                self.general_s2_label.grid()
-                self.general_s2_text.grid()
-                self._s2_controls_hidden = False
+        self.period_codes = self._compute_period_codes()
+        self._configure_synthesis_columns()
+        if hasattr(self, 'general_frame'):
+            self._build_general_appreciation_widgets()
     
     def _create_toolbar(self, parent, row):
         """Crée la barre d'outils"""
@@ -346,25 +384,10 @@ class ConseilWindow:
         synthesis_frame.columnconfigure(0, weight=1)
         synthesis_frame.rowconfigure(0, weight=1)
         
-        # TreeView pour la synthèse avec hauteur optimisée
-        columns = ('matiere', 'moy_s1', 'moy_s2', 'abs_s1', 'abs_s2', 'evolution')
-        self.synthesis_tree_columns = columns
-        self.synthesis_tree = ttk.Treeview(synthesis_frame, columns=columns, show='headings', height=20)
-        
-        # Configuration colonnes
-        self.synthesis_tree.heading('matiere', text='Matière')
-        self.synthesis_tree.heading('moy_s1', text='Moy. S1')
-        self.synthesis_tree.heading('moy_s2', text='Moy. S2')
-        self.synthesis_tree.heading('abs_s1', text='Abs. S1')
-        self.synthesis_tree.heading('abs_s2', text='Abs. S2')
-        self.synthesis_tree.heading('evolution', text='Évolution')
-        
-        self.synthesis_tree.column('matiere', width=200)
-        self.synthesis_tree.column('moy_s1', width=100)
-        self.synthesis_tree.column('moy_s2', width=100)
-        self.synthesis_tree.column('abs_s1', width=100)
-        self.synthesis_tree.column('abs_s2', width=100)
-        self.synthesis_tree.column('evolution', width=120)
+        # TreeView pour la synthèse : colonnes configurées dynamiquement
+        # selon les périodes présentes (S1/S2 ou T1/T2/T3).
+        self.synthesis_tree = ttk.Treeview(synthesis_frame, show='headings', height=20)
+        self._configure_synthesis_columns()
         
         self.synthesis_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
@@ -372,6 +395,38 @@ class ConseilWindow:
         synthesis_scrollbar = ttk.Scrollbar(synthesis_frame, orient=tk.VERTICAL, command=self.synthesis_tree.yview)
         synthesis_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         self.synthesis_tree.configure(yscrollcommand=synthesis_scrollbar.set)
+    
+    def _configure_synthesis_columns(self):
+        """Configure dynamiquement les colonnes du tableau de synthèse."""
+        if not hasattr(self, 'synthesis_tree'):
+            return
+        
+        columns = ['matiere']
+        headings = {'matiere': 'Matière'}
+        widths = {'matiere': 200}
+        
+        for code in self.period_codes:
+            for prefix, label, width in (
+                ('moy', 'Moy.', 90),
+                ('abs', 'Abs.', 80),
+                ('ret', 'Ret.', 70),
+            ):
+                col = f'{prefix}_{code.lower()}'
+                columns.append(col)
+                headings[col] = f'{label} {code}'
+                widths[col] = width
+        
+        # Colonne évolution si au moins deux périodes
+        if len(self.period_codes) >= 2:
+            columns.append('evolution')
+            headings['evolution'] = 'Évolution'
+            widths['evolution'] = 120
+        
+        self.synthesis_tree_columns = tuple(columns)
+        self.synthesis_tree.configure(columns=self.synthesis_tree_columns)
+        for col in columns:
+            self.synthesis_tree.heading(col, text=headings[col])
+            self.synthesis_tree.column(col, width=widths[col])
     
     def _create_detailed_tab(self):
         """Crée l'onglet vue détaillée optimisé pour les appréciations"""
@@ -406,26 +461,34 @@ class ConseilWindow:
         self.detailed_widgets = []
     
     def _create_general_appreciation(self, parent, row):
-        """Crée la section appréciation générale compacte"""
-        general_frame = ttk.LabelFrame(parent, text="Appréciation Générale", padding="3")
-        general_frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
-        general_frame.columnconfigure(1, weight=1)
+        """Crée la section appréciation générale (une zone par période)."""
+        self.general_frame = ttk.LabelFrame(parent, text="Appréciation Générale", padding="3")
+        self.general_frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         
-        # Layout horizontal pour économiser l'espace vertical
-        # S1
-        ttk.Label(general_frame, text="S1:", style='Header.TLabel').grid(row=0, column=0, sticky=(tk.W, tk.N), padx=(0, 5))
-        self.general_s1_text = tk.Text(general_frame, height=5, wrap=tk.WORD, state='disabled', font=('Arial', 10))
-        self.general_s1_text.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=2, padx=(0, 10))
+        # Les zones de texte par période sont construites dynamiquement
+        self.general_texts: Dict[str, tk.Text] = {}
+        self._build_general_appreciation_widgets()
+    
+    def _build_general_appreciation_widgets(self):
+        """(Re)construit les zones d'appréciation générale selon les périodes."""
+        for widget in self.general_widgets:
+            widget.destroy()
+        self.general_widgets.clear()
+        self.general_texts = {}
         
-        # S2
-        self.general_s2_label = ttk.Label(general_frame, text="S2:", style='Header.TLabel')
-        self.general_s2_label.grid(row=0, column=2, sticky=(tk.W, tk.N), padx=(5, 5))
-        self.general_s2_text = tk.Text(general_frame, height=5, wrap=tk.WORD, state='disabled', font=('Arial', 10))
-        self.general_s2_text.grid(row=0, column=3, sticky=(tk.W, tk.E), pady=2)
-        
-        # Répartition équitable de l'espace
-        general_frame.columnconfigure(1, weight=1)
-        general_frame.columnconfigure(3, weight=1)
+        col = 0
+        for code in self.period_codes:
+            label = ttk.Label(self.general_frame, text=f"{code}:", style='Header.TLabel')
+            label.grid(row=0, column=col, sticky=(tk.W, tk.N), padx=(5, 5))
+            self.general_widgets.append(label)
+            col += 1
+            
+            text = tk.Text(self.general_frame, height=5, wrap=tk.WORD, state='disabled', font=('Arial', 10))
+            text.grid(row=0, column=col, sticky=(tk.W, tk.E), pady=2, padx=(0, 10))
+            self.general_frame.columnconfigure(col, weight=1)
+            self.general_widgets.append(text)
+            self.general_texts[code] = text
+            col += 1
     
     def _load_json_file(self):
         """Charge un fichier JSON"""
@@ -450,13 +513,15 @@ class ConseilWindow:
                 data = raw_data[1:]
             
             self.metadata = metadata
-            self.semester = self._determine_semester(metadata, data)
-            self._apply_semester_ui_state()
+            self.period = self._determine_period(metadata, data)
             
             self.bulletins = []
             for bulletin_data in data:
                 bulletin = Bulletin.from_dict(bulletin_data)
                 self.bulletins.append(bulletin)
+            
+            # Adapter les colonnes/sections aux périodes réellement présentes
+            self._apply_period_ui_state()
             
             self.json_file_path = file_path
             self._update_bulletin_list()
@@ -513,38 +578,45 @@ class ConseilWindow:
         self._update_position_indicator()
     
     def _update_synthesis_view(self, bulletin):
-        """Met à jour la vue synthèse"""
+        """Met à jour la vue synthèse (colonnes dynamiques par période)."""
         # Vider le TreeView
         for item in self.synthesis_tree.get_children():
             self.synthesis_tree.delete(item)
         
-        show_evolution = self.semester == Semester.S2
-        # Ajouter les matières
         for matiere_nom, appreciation in bulletin.matieres.items():
-            # Calculer l'évolution
-            evolution = ""
-            if show_evolution and appreciation.moyenne_s1 and appreciation.moyenne_s2:
-                try:
-                    moy_s1 = float(str(appreciation.moyenne_s1).replace(',', '.'))
-                    moy_s2 = float(str(appreciation.moyenne_s2).replace(',', '.'))
-                    diff = moy_s2 - moy_s1
-                    if diff > 0:
-                        evolution = f"+{diff:.2f} ↗️"
-                    elif diff < 0:
-                        evolution = f"{diff:.2f} ↘️"
-                    else:
-                        evolution = "= ➡️"
-                except (ValueError, TypeError):
-                    evolution = "-"
+            values = [appreciation.matiere]
+            for code in self.period_codes:
+                periode = appreciation.get_periode(code)
+                moyenne = periode.moyenne if periode else None
+                absence = periode.heures_absence if periode else None
+                retards = periode.retards if periode else None
+                values.append(f"{moyenne:.2f}" if isinstance(moyenne, (int, float)) else (moyenne or "-"))
+                values.append(absence if absence else "-")
+                values.append(str(retards) if retards is not None else "-")
             
-            self.synthesis_tree.insert('', 'end', values=(
-                appreciation.matiere,
-                appreciation.moyenne_s1 or "-",
-                appreciation.moyenne_s2 or "-",
-                f"{appreciation.heures_absence_s1}h" if appreciation.heures_absence_s1 else "-",
-                f"{appreciation.heures_absence_s2}h" if appreciation.heures_absence_s2 else "-",
-                evolution
-            ))
+            if len(self.period_codes) >= 2:
+                values.append(self._compute_evolution(appreciation))
+            
+            self.synthesis_tree.insert('', 'end', values=tuple(values))
+    
+    def _compute_evolution(self, appreciation) -> str:
+        """Calcule l'évolution entre les deux dernières périodes disponibles."""
+        moyennes = []
+        for code in self.period_codes:
+            periode = appreciation.get_periode(code)
+            if periode and periode.moyenne is not None:
+                moyennes.append(periode.moyenne)
+        if len(moyennes) < 2:
+            return "-"
+        try:
+            diff = float(moyennes[-1]) - float(moyennes[-2])
+            if diff > 0:
+                return f"+{diff:.2f} ↗️"
+            elif diff < 0:
+                return f"{diff:.2f} ↘️"
+            return "= ➡️"
+        except (ValueError, TypeError):
+            return "-"
     
     def _update_detailed_view(self, bulletin):
         """Met à jour la vue détaillée optimisée pour les appréciations"""
@@ -562,86 +634,63 @@ class ConseilWindow:
             matiere_frame.columnconfigure(1, weight=1)
             self.detailed_widgets.append(matiere_frame)
             
-            # Section informations numériques (compacte en haut)
+            # Section informations numériques (compacte en haut) par période
             info_frame = ttk.Frame(matiere_frame)
             info_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-            show_s2 = self.semester == Semester.S2
             current_col = 0
             
-            ttk.Label(info_frame, text="Moy. S1:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
-            current_col += 1
-            ttk.Label(info_frame, text=appreciation.moyenne_s1 or "-", style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
-            current_col += 1
-            
-            if show_s2:
-                ttk.Label(info_frame, text="Moy. S2:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
+            for code in self.period_codes:
+                periode = appreciation.get_periode(code)
+                moyenne = periode.moyenne if periode else None
+                absence = periode.heures_absence if periode else None
+                retards = periode.retards if periode else None
+                moy_text = f"{moyenne:.2f}" if isinstance(moyenne, (int, float)) else (moyenne or "-")
+                
+                ttk.Label(info_frame, text=f"Moy. {code}:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
                 current_col += 1
-                ttk.Label(info_frame, text=appreciation.moyenne_s2 or "-", style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
+                ttk.Label(info_frame, text=moy_text, style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
+                current_col += 1
+                
+                ttk.Label(info_frame, text=f"Abs. {code}:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
+                current_col += 1
+                ttk.Label(info_frame, text=absence if absence else "-", style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
+                current_col += 1
+                
+                ttk.Label(info_frame, text=f"Ret. {code}:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
+                current_col += 1
+                ttk.Label(info_frame, text=str(retards) if retards is not None else "-", style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 20))
                 current_col += 1
             
-            ttk.Label(info_frame, text="Abs. S1:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
-            current_col += 1
-            abs_s1_text = f"{appreciation.heures_absence_s1}h" if appreciation.heures_absence_s1 else "-"
-            ttk.Label(info_frame, text=abs_s1_text, style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
-            current_col += 1
-            
-            if show_s2:
-                ttk.Label(info_frame, text="Abs. S2:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
-                current_col += 1
-                abs_s2_text = f"{appreciation.heures_absence_s2}h" if appreciation.heures_absence_s2 else "-"
-                ttk.Label(info_frame, text=abs_s2_text, style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W)
-            
-            # Appréciations avec beaucoup plus d'espace
+            # Appréciations par période avec beaucoup plus d'espace
             appreciations_frame = ttk.Frame(matiere_frame)
             appreciations_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-            appreciations_frame.columnconfigure(0, weight=1)
-            appreciations_frame.columnconfigure(1, weight=1)
             
-            # Appréciation S1 (colonne gauche)
-            if appreciation.appreciation_s1:
-                s1_frame = ttk.LabelFrame(appreciations_frame, text="Appréciation S1", padding="5")
-                s1_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-                s1_frame.columnconfigure(0, weight=1)
-                s1_frame.rowconfigure(0, weight=1)
+            appr_col = 0
+            for code in self.period_codes:
+                periode = appreciation.get_periode(code)
+                texte = periode.appreciation if periode else None
+                if not texte:
+                    continue
+                appreciations_frame.columnconfigure(appr_col, weight=1)
+                periode_frame = ttk.LabelFrame(appreciations_frame, text=f"Appréciation {code}", padding="5")
+                periode_frame.grid(row=0, column=appr_col, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+                periode_frame.columnconfigure(0, weight=1)
+                periode_frame.rowconfigure(0, weight=1)
                 
-                # Zone de texte optimisée pour S1 (3.5 lignes)
-                appr_s1_text = tk.Text(s1_frame, height=4, wrap=tk.WORD, state='disabled', font=('Arial', 11))
-                appr_s1_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+                appr_text = tk.Text(periode_frame, height=4, wrap=tk.WORD, state='disabled', font=('Arial', 11))
+                appr_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
                 
-                # Scrollbar pour S1
-                s1_scrollbar = ttk.Scrollbar(s1_frame, orient=tk.VERTICAL, command=appr_s1_text.yview)
-                s1_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-                appr_s1_text.configure(yscrollcommand=s1_scrollbar.set)
+                appr_scrollbar = ttk.Scrollbar(periode_frame, orient=tk.VERTICAL, command=appr_text.yview)
+                appr_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+                appr_text.configure(yscrollcommand=appr_scrollbar.set)
                 
-                appr_s1_text.configure(state='normal')
-                appr_s1_text.delete('1.0', tk.END)
-                self._insert_html_text(appr_s1_text, appreciation.appreciation_s1)
-                appr_s1_text.configure(state='disabled')
-                self.detailed_widgets.append(appr_s1_text)
-                self.detailed_widgets.append(s1_frame)
-            
-            # Appréciation S2 (colonne droite)
-            if self.semester == Semester.S2 and appreciation.appreciation_s2:
-                s2_frame = ttk.LabelFrame(appreciations_frame, text="Appréciation S2", padding="5")
-                s2_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
-                s2_frame.columnconfigure(0, weight=1)
-                s2_frame.rowconfigure(0, weight=1)
-                
-                # Zone de texte optimisée pour S2 (3.5 lignes)
-                appr_s2_text = tk.Text(s2_frame, height=4, wrap=tk.WORD, state='disabled', font=('Arial', 11))
-                appr_s2_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-                
-                # Scrollbar pour S2
-                s2_scrollbar = ttk.Scrollbar(s2_frame, orient=tk.VERTICAL, command=appr_s2_text.yview)
-                s2_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-                appr_s2_text.configure(yscrollcommand=s2_scrollbar.set)
-                
-                appr_s2_text.configure(state='normal')
-                appr_s2_text.delete('1.0', tk.END)
-                self._insert_html_text(appr_s2_text, appreciation.appreciation_s2)
-                appr_s2_text.configure(state='disabled')
-                self.detailed_widgets.append(appr_s2_text)
-                self.detailed_widgets.append(s2_frame)
+                appr_text.configure(state='normal')
+                appr_text.delete('1.0', tk.END)
+                self._insert_html_text(appr_text, texte)
+                appr_text.configure(state='disabled')
+                self.detailed_widgets.append(appr_text)
+                self.detailed_widgets.append(periode_frame)
+                appr_col += 1
             
             # Configuration pour que les appréciations prennent toute la hauteur disponible
             matiere_frame.rowconfigure(1, weight=1)
@@ -650,20 +699,14 @@ class ConseilWindow:
             row += 1
     
     def _update_general_view(self, bulletin):
-        """Met à jour la vue appréciation générale"""
-        # S1
-        self.general_s1_text.configure(state='normal')
-        self.general_s1_text.delete('1.0', tk.END)
-        if bulletin.appreciation_generale_s1:
-            self._insert_html_text(self.general_s1_text, bulletin.appreciation_generale_s1)
-        self.general_s1_text.configure(state='disabled')
-        
-        # S2
-        self.general_s2_text.configure(state='normal')
-        self.general_s2_text.delete('1.0', tk.END)
-        if bulletin.appreciation_generale_s2:
-            self._insert_html_text(self.general_s2_text, bulletin.appreciation_generale_s2)
-        self.general_s2_text.configure(state='disabled')
+        """Met à jour la vue appréciation générale (une zone par période)."""
+        for code, text_widget in self.general_texts.items():
+            text_widget.configure(state='normal')
+            text_widget.delete('1.0', tk.END)
+            texte = bulletin.get_appreciation_generale(code)
+            if texte:
+                self._insert_html_text(text_widget, texte)
+            text_widget.configure(state='disabled')
     
     def _clear_display(self):
         """Vide l'affichage"""
@@ -679,13 +722,10 @@ class ConseilWindow:
             widget.destroy()
         self.detailed_widgets.clear()
         
-        self.general_s1_text.configure(state='normal')
-        self.general_s1_text.delete('1.0', tk.END)
-        self.general_s1_text.configure(state='disabled')
-        
-        self.general_s2_text.configure(state='normal')
-        self.general_s2_text.delete('1.0', tk.END)
-        self.general_s2_text.configure(state='disabled')
+        for text_widget in self.general_texts.values():
+            text_widget.configure(state='normal')
+            text_widget.delete('1.0', tk.END)
+            text_widget.configure(state='disabled')
     
     def _previous_bulletin(self):
         """Bulletin précédent"""
