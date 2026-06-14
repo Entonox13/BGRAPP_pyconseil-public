@@ -20,6 +20,7 @@ try:
         MainProcessorError
     )
     from .config_window import ConfigWindow
+    from .csv_renamer_window import CsvRenamerWindow
     from ..utils.semester import (
         Semester,
         infer_semester_from_bulletins_data,
@@ -37,6 +38,7 @@ except ImportError:
     )
     sys.path.insert(0, str(Path(__file__).parent))
     from config_window import ConfigWindow
+    from csv_renamer_window import CsvRenamerWindow
     from utils.semester import (
         Semester,
         infer_semester_from_bulletins_data,
@@ -164,6 +166,13 @@ class MainWindow:
             padding="5"
         )
         self.dir_label.grid(row=0, column=1, sticky=(tk.W, tk.E))
+
+        self.rename_csv_btn = ttk.Button(
+            dir_frame,
+            text="Renommer CSV",
+            command=self._open_csv_renamer_window,
+        )
+        self.rename_csv_btn.grid(row=0, column=2, padx=(8, 0))
         
         # Frame pour la zone d'informations avec scrollbar
         info_frame = ttk.Frame(parent)
@@ -664,6 +673,23 @@ class MainWindow:
             messagebox.showerror(
                 "Erreur", 
                 f"Erreur lors de l'ouverture de la configuration IA:\n{str(e)}"
+            )
+
+    def _open_csv_renamer_window(self):
+        """Ouvre l'utilitaire de renommage des CSV."""
+        self._log_message("📋 Ouverture de l'utilitaire de renommage CSV...")
+        try:
+            CsvRenamerWindow(
+                parent_window=self,
+                initial_directory=self.selected_directory,
+                on_renamed=self._analyze_directory,
+            )
+            self._log_message("✅ Utilitaire de renommage CSV ouvert", "success")
+        except Exception as e:
+            self._log_message(f"❌ Erreur ouverture renommage CSV: {e}", "error")
+            messagebox.showerror(
+                "Erreur",
+                f"Erreur lors de l'ouverture de l'utilitaire de renommage:\n{str(e)}",
             )
     
     def _on_ai_config_changed(self):

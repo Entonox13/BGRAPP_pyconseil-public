@@ -7,5 +7,12 @@ from .main_window import MainWindow
 from .edition_window import EditionWindow
 from .conseil_window import ConseilWindow
 from .config_window import ConfigWindow
+from .csv_renamer_window import CsvRenamerWindow
 
-__all__ = ['MainWindow', 'EditionWindow', 'ConseilWindow', 'ConfigWindow'] 
+__all__ = [
+    'MainWindow',
+    'EditionWindow',
+    'ConseilWindow',
+    'ConfigWindow',
+    'CsvRenamerWindow',
+] 
