@@ -7,7 +7,7 @@ Coordonne la lecture des fichiers, le traitement et la génération JSON.
 import os
 import copy
 from datetime import datetime
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 # Import conditionnel pour gérer les imports relatifs
 try:
     from .file_reader import (
@@ -63,6 +63,18 @@ def merge_history_into_bulletins(bulletins: List[Bulletin],
     if not previous_bulletins:
         return
 
+    # On ne fusionne que les périodes du même système (trimestre/semestre) que
+    # la période courante : un traitement T2 ne doit pas récupérer des données
+    # S1/S2 issues d'un ancien output, et inversement (évite les conflits).
+    current_period = Period.from_code(current_code)
+    current_system = current_period.system if current_period else None
+
+    def _same_system(code: str) -> bool:
+        if current_system is None:
+            return True
+        period = Period.from_code(code)
+        return period is not None and period.system == current_system
+
     prev_index = {
         f"{b.eleve.nom} {b.eleve.prenom}": b for b in previous_bulletins
     }
@@ -75,7 +87,7 @@ def merge_history_into_bulletins(bulletins: List[Bulletin],
 
         # Reporter les appréciations générales des périodes précédentes
         for code, texte in previous.appreciations_generales.items():
-            if code == current_code:
+            if code == current_code or not _same_system(code):
                 continue
             if code not in bulletin.appreciations_generales:
                 bulletin.appreciations_generales[code] = texte
@@ -84,11 +96,19 @@ def merge_history_into_bulletins(bulletins: List[Bulletin],
         for matiere_name, prev_app in previous.matieres.items():
             current_app = bulletin.get_matiere(matiere_name)
             if current_app is None:
-                # Matière absente de l'export courant : conserver l'historique (copie)
-                bulletin.add_matiere(copy.deepcopy(prev_app))
+                # Matière absente de l'export courant : conserver l'historique
+                # (copie), en filtrant les périodes d'un autre système.
+                clone = copy.deepcopy(prev_app)
+                clone.periodes = {
+                    code: periode
+                    for code, periode in clone.periodes.items()
+                    if _same_system(code)
+                }
+                if clone.periodes:
+                    bulletin.add_matiere(clone)
                 continue
             for code, periode in prev_app.periodes.items():
-                if code == current_code:
+                if code == current_code or not _same_system(code):
                     continue
                 if code not in current_app.periodes:
                     current_app.periodes[code] = copy.deepcopy(periode)
@@ -97,7 +117,8 @@ def merge_history_into_bulletins(bulletins: List[Bulletin],
 def process_directory_to_json(source_directory: str, 
                              output_path: str,
                              validate_data: bool = True,
-                             merge_history: bool = True) -> Dict[str, Any]:
+                             merge_history: bool = False,
+                             period_override: Optional["Period"] = None) -> Dict[str, Any]:
     """
     Traite un répertoire complet et génère le fichier JSON de sortie.
     
@@ -147,8 +168,10 @@ def process_directory_to_json(source_directory: str,
         # 4. Traiter chaque fichier CSV de matière
         csv_files = validation['csv_files']
         matieres_traitees = []
-        period = Period.S2
-        period_detected = False
+        # Une période imposée (ex: déduite du nom du dossier) prime sur la
+        # détection automatique à partir des en-têtes des CSV.
+        period = period_override if period_override is not None else Period.S2
+        period_detected = period_override is not None
         
         for csv_file in csv_files:
             matiere_name = extract_matiere_name_from_filename(csv_file)

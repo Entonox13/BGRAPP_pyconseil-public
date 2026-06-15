@@ -19,6 +19,7 @@ try:
         normalize_csv_filename,
         rename_csv_files,
     )
+    from ..utils.paths import get_documents_dir
 except ImportError:
     import sys
 
@@ -30,6 +31,7 @@ except ImportError:
         normalize_csv_filename,
         rename_csv_files,
     )
+    from utils.paths import get_documents_dir
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -205,7 +207,7 @@ class CsvRenamerWindow:
     def _browse_directory(self):
         directory = filedialog.askdirectory(
             title="Sélectionner le dossier contenant les CSV",
-            initialdir=self.directory or str(Path.home()),
+            initialdir=self.directory or get_documents_dir(),
         )
         if directory:
             self._set_directory(directory)

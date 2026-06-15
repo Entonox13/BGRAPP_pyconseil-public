@@ -9,6 +9,7 @@ l'ancienne notion de `Semester` (qui reste disponible en alias).
 
 from __future__ import annotations
 
+import os
 import re
 from collections import Counter
 from enum import Enum
@@ -34,6 +35,8 @@ _PERIOD_META = {
     "T2": (PeriodSystem.TRIMESTRE, 2, "Trimestre 2"),
     "T3": (PeriodSystem.TRIMESTRE, 3, "Trimestre 3"),
 }
+
+PERIOD_CODES = ("S1", "S2", "T1", "T2", "T3")
 
 
 class Period(str, Enum):
@@ -252,6 +255,77 @@ def infer_period_from_bulletins_data(
         Period[code] for code in code_counts if Period[code].system == dominant_system
     ]
     return max(candidates, key=lambda p: p.order)
+
+
+def period_from_directory_name(path_or_name: Optional[str]) -> Optional[Period]:
+    """
+    Déduit la période à partir du nom du dossier contenant les CSV.
+
+    Exemples : '.../PP/T3' -> T3, 'S1' -> S1, 'Trimestre 2 (T2)' -> T2.
+
+    Args:
+        path_or_name: Chemin complet ou simple nom de dossier.
+
+    Returns:
+        Period si un code (S1/S2/T1/T2/T3) est reconnu, sinon None.
+    """
+    if not path_or_name:
+        return None
+
+    name = os.path.basename(os.path.normpath(str(path_or_name)))
+
+    # 1. Le nom du dossier est exactement un code de période
+    direct = Period.from_code(name)
+    if direct:
+        return direct
+
+    # 2. Le nom contient un code de période isolé (ex: "Trimestre 2 (T2)")
+    match = re.search(r"\b([ST][123])\b", name.upper())
+    if match:
+        return Period.from_code(match.group(1))
+
+    return None
+
+
+def available_periods_from_bulletins_data(
+    bulletins_data: Sequence[Mapping[str, Any]]
+) -> List[Period]:
+    """
+    Liste ordonnée des périodes réellement présentes dans les données JSON.
+
+    Contrairement à `infer_period_from_bulletins_data` qui ne retourne qu'une
+    seule période (la plus probable), cette fonction retourne toutes les
+    périodes détectées afin d'alimenter un sélecteur manuel.
+
+    Args:
+        bulletins_data: Liste de bulletins tels que stockés dans le JSON.
+
+    Returns:
+        List[Period]: Périodes présentes, dans l'ordre canonique S1,S2,T1,T2,T3.
+    """
+    present = set()
+    pattern = re.compile(r"(?:Moyenne|Appreciation|HeuresAbsence|Retards)(S1|S2|T1|T2|T3)")
+
+    for bulletin_data in bulletins_data:
+        if not isinstance(bulletin_data, Mapping):
+            continue
+        for key in bulletin_data.keys():
+            match = re.match(r"AppreciationGenerale(S1|S2|T1|T2|T3)$", str(key))
+            if match:
+                present.add(match.group(1))
+        matieres = bulletin_data.get("Matieres")
+        if not isinstance(matieres, Mapping):
+            continue
+        for appreciation in matieres.values():
+            if not isinstance(appreciation, Mapping):
+                continue
+            for key in appreciation.keys():
+                match = pattern.match(str(key))
+                if match:
+                    present.add(match.group(1))
+
+    canonical_order = ["S1", "S2", "T1", "T2", "T3"]
+    return [Period[code] for code in canonical_order if code in present]
 
 
 # ---------------------------------------------------------------------------

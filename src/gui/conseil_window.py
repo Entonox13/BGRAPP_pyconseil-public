@@ -24,6 +24,13 @@ try:
         period_from_metadata,
         period_system_from_metadata,
     )
+    from ..services.period_history import (
+        resolve_period_links,
+        load_history_bulletins,
+        build_display_bulletins,
+    )
+    from .period_links_panel import open_period_links_dialog
+    from ..utils.paths import get_documents_dir
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -37,6 +44,14 @@ except ImportError:
         period_from_metadata,
         period_system_from_metadata,
     )
+    from services.period_history import (
+        resolve_period_links,
+        load_history_bulletins,
+        build_display_bulletins,
+    )
+    sys.path.insert(0, str(Path(__file__).parent))
+    from period_links_panel import open_period_links_dialog
+    from utils.paths import get_documents_dir
 
 
 class ConseilWindow:
@@ -50,6 +65,9 @@ class ConseilWindow:
         self.current_bulletin_index: int = 0
         self.conseil_data: Dict[str, Any] = {}
         self.period: Period = initial_semester or Period.S2
+        # Période imposée par l'appelant (sélection manuelle dans la fenêtre
+        # principale) : prioritaire sur la détection automatique au 1er chargement.
+        self._forced_initial_period: Optional[Period] = initial_semester
         self.period_codes: List[str] = self._default_period_codes()
         self.metadata: Dict[str, Any] = {}
         self.general_widgets: List[Any] = []
@@ -235,6 +253,22 @@ class ConseilWindow:
             return period
         return infer_period_from_bulletins_data(data)
 
+    def _merge_linked_periods(self, current_bulletins: List[Bulletin]) -> List[Bulletin]:
+        """
+        Fusionne (lecture seule) les bulletins des périodes liées dans une copie
+        des bulletins courants pour reconstruire la vue multi-périodes.
+        """
+        if not self.json_file_path:
+            return current_bulletins
+        try:
+            links = resolve_period_links(self.json_file_path, self.metadata, self.period.value)
+            if not links:
+                return current_bulletins
+            history = load_history_bulletins(links)
+            return build_display_bulletins(current_bulletins, history, self.period.value)
+        except Exception:
+            return current_bulletins
+
     def _compute_period_codes(self) -> List[str]:
         """
         Calcule les codes de période à afficher : toutes les périodes
@@ -246,11 +280,9 @@ class ConseilWindow:
         """
         present = set()
         for bulletin in self.bulletins:
-            for code, texte in bulletin.appreciations_generales.items():
-                if texte:
-                    present.add(code)
             for appreciation in bulletin.matieres.values():
                 present.update(appreciation.periodes.keys())
+        present.add(self.period.value)
         
         if present:
             return [c for c in PERIOD_CODES if c in present]
@@ -268,12 +300,13 @@ class ConseilWindow:
         self._configure_synthesis_columns()
         if hasattr(self, 'general_frame'):
             self._build_general_appreciation_widgets()
+        self._refresh_period_selector()
     
     def _create_toolbar(self, parent, row):
         """Crée la barre d'outils"""
         toolbar_frame = ttk.Frame(parent)
         toolbar_frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
-        toolbar_frame.columnconfigure(2, weight=1)
+        toolbar_frame.columnconfigure(3, weight=1)
         
         # Titre plus visible
         ttk.Label(toolbar_frame, text="🏛️ Conseil de Classe - Vue Plein Écran", style='Title.TLabel').grid(row=0, column=0, sticky=tk.W)
@@ -281,18 +314,73 @@ class ConseilWindow:
         # Bouton charger
         self.load_btn = ttk.Button(toolbar_frame, text="📂 Charger JSON", command=self._load_json_file)
         self.load_btn.grid(row=0, column=1, padx=(20, 10))
+
+        # Bouton périodes liées (autres JSON)
+        self.period_links_btn = ttk.Button(toolbar_frame, text="🔗 Périodes liées", command=self._open_period_links)
+        self.period_links_btn.grid(row=0, column=6, padx=(10, 10))
+        
+        # Sélecteur manuel de période (trimestre/semestre)
+        self._build_period_selector(toolbar_frame, 2)
         
         # Indicateur position plus visible
         self.position_label = ttk.Label(toolbar_frame, text="Aucun bulletin chargé", style='Large.TLabel')
-        self.position_label.grid(row=0, column=2, sticky=tk.E, padx=(0, 20))
+        self.position_label.grid(row=0, column=3, sticky=tk.E, padx=(0, 20))
         
         # Raccourcis clavier
         help_label = ttk.Label(toolbar_frame, text="[Échap/F11: Plein écran]", style='Info.TLabel')
-        help_label.grid(row=0, column=3, sticky=tk.E, padx=(0, 10))
+        help_label.grid(row=0, column=4, sticky=tk.E, padx=(0, 10))
         
         # Bouton retour
         self.back_btn = ttk.Button(toolbar_frame, text="◀ Retour", command=self._return_to_main)
-        self.back_btn.grid(row=0, column=4, padx=(10, 0))
+        self.back_btn.grid(row=0, column=5, padx=(10, 0))
+
+    def _build_period_selector(self, parent, column):
+        """Crée le sélecteur manuel de période courante."""
+        selector_frame = ttk.Frame(parent)
+        selector_frame.grid(row=0, column=column, padx=(0, 15))
+        ttk.Label(selector_frame, text="Période :", style='Info.TLabel').grid(
+            row=0, column=0, padx=(0, 5)
+        )
+        self.period_var = tk.StringVar()
+        self.period_combo = ttk.Combobox(
+            selector_frame,
+            textvariable=self.period_var,
+            state='readonly',
+            width=14,
+        )
+        self.period_combo.grid(row=0, column=1)
+        self.period_combo.bind('<<ComboboxSelected>>', self._on_period_selected)
+
+    def _refresh_period_selector(self):
+        """Synchronise le sélecteur avec les périodes disponibles."""
+        if not hasattr(self, 'period_combo'):
+            return
+        codes = list(self.period_codes) if self.period_codes else [self.period.value]
+        if self.period.value not in codes:
+            codes = [self.period.value] + codes
+        self._period_choice_codes = codes
+        labels = [
+            (Period.from_code(code).label if Period.from_code(code) else code)
+            for code in codes
+        ]
+        self.period_combo['values'] = labels
+        try:
+            self.period_combo.current(codes.index(self.period.value))
+        except ValueError:
+            pass
+
+    def _on_period_selected(self, event=None):
+        """Applique la période choisie manuellement par l'utilisateur."""
+        index = self.period_combo.current()
+        codes = getattr(self, '_period_choice_codes', [])
+        if index < 0 or index >= len(codes):
+            return
+        selected = Period.from_code(codes[index])
+        if not selected or selected == self.period:
+            return
+        self.period = selected
+        self._apply_period_ui_state()
+        self._update_display()
     
     def _create_navigation_panel(self, parent, row, column):
         """Crée le panneau de navigation optimisé"""
@@ -495,10 +583,25 @@ class ConseilWindow:
         file_path = filedialog.askopenfilename(
             title="Choisir le fichier JSON",
             filetypes=[("Fichiers JSON", "*.json")],
-            initialdir=os.getcwd()
+            initialdir=get_documents_dir()
         )
         if file_path:
             self._load_bulletins_from_file(file_path)
+
+    def _open_period_links(self):
+        """Ouvre la gestion des JSON des autres périodes."""
+        if not self.json_file_path or not os.path.exists(self.json_file_path):
+            messagebox.showinfo(
+                "Information",
+                "Chargez d'abord un fichier JSON pour gérer les périodes liées."
+            )
+            return
+        open_period_links_dialog(
+            self.root,
+            self.json_file_path,
+            self.period.value,
+            on_change=lambda: self._load_bulletins_from_file(self.json_file_path),
+        )
     
     def _load_bulletins_from_file(self, file_path: str):
         """Charge les bulletins depuis un fichier JSON"""
@@ -513,17 +616,25 @@ class ConseilWindow:
                 data = raw_data[1:]
             
             self.metadata = metadata
-            self.period = self._determine_period(metadata, data)
+            if self._forced_initial_period is not None:
+                # Respecter la période choisie manuellement (consommée une fois)
+                self.period = self._forced_initial_period
+                self._forced_initial_period = None
+            else:
+                self.period = self._determine_period(metadata, data)
             
-            self.bulletins = []
+            current_bulletins = []
             for bulletin_data in data:
                 bulletin = Bulletin.from_dict(bulletin_data)
-                self.bulletins.append(bulletin)
+                current_bulletins.append(bulletin)
+
+            self.json_file_path = file_path
+            # Fusionner (lecture seule) les periodes liees pour la vue d'ensemble
+            self.bulletins = self._merge_linked_periods(current_bulletins)
             
             # Adapter les colonnes/sections aux périodes réellement présentes
             self._apply_period_ui_state()
             
-            self.json_file_path = file_path
             self._update_bulletin_list()
             self._update_status(f"Chargé {len(self.bulletins)} bulletins depuis {os.path.basename(file_path)}")
             

@@ -12,9 +12,10 @@ Une application Python avec interface graphique pour centraliser et traiter les 
 
 ### 🔄 Traitement des données
 - **Import automatique** : Traitement des fichiers Excel (liste élèves) et CSV (notes par matière)
-- **Génération JSON** : Création d'un fichier structuré contenant tous les bulletins
+- **Un JSON par période** : Chaque période (S1/S2 ou T1/T2/T3) est sauvegardée dans son propre fichier (ex. `output_T3.json`), ne contenant que cette période
+- **Périodes liées** : Les autres périodes sont référencées via des liens (auto-découverte des JSON du même dossier + ajout/retrait manuel) et fusionnées en lecture seule pour la vue d'ensemble
 - **Vérification de cohérence** : Correspondance automatique entre nombre d'élèves et bulletins générés
-- **Détection automatique du semestre** : Analyse des colonnes Pronote pour distinguer S1/S2 et adapter tout le pipeline
+- **Détection automatique de la période** : Analyse des colonnes Pronote (et du nom du dossier) pour distinguer S1/S2/T1/T2/T3 et adapter tout le pipeline
 
 ### 🤖 Intelligence artificielle OpenAI
 - **Provider unique** : Intégration centrée OpenAI (Responses API)
@@ -25,9 +26,10 @@ Une application Python avec interface graphique pour centraliser et traiter les 
 
 ### 🖥️ Interface graphique
 - **Fenêtre principale** : Sélection du dossier de travail et lancement des traitements
-- **Fenêtre d'édition** : Visualisation et navigation dans les bulletins générés
-- **Fenêtre conseil** : Interface dédiée à la préparation des conseils (en développement)
-- Les fenêtres d'édition/conseil s'adaptent automatiquement au semestre (masquage des colonnes/évolutions S2 lorsqu'on prépare un S1)
+- **Fenêtre d'édition** : Visualisation et édition de la **période courante** ; les périodes liées apparaissent en lecture seule
+- **Fenêtre conseil** : Vue d'ensemble multi-périodes (synthèse, évolution) reconstruite à partir des périodes liées
+- **Bouton « 🔗 Périodes liées »** : Présent dans les trois fenêtres pour gérer les JSON des autres périodes
+- Les fenêtres d'édition/conseil s'adaptent automatiquement à la période et aux périodes liées présentes (colonnes Moy./Abs./Ret. et évolution dynamiques)
 
 ## 🚀 Installation
 
@@ -141,11 +143,18 @@ dossier_de_travail/
 └── ...                 # Autres matières
 ```
 
-### Workflow typique
-1. **Sélection du dossier** : Choisir le dossier contenant vos fichiers source
-2. **Génération JSON** : Traiter les données pour créer le fichier `output.json`
-3. **Édition** : Parcourir et améliorer les bulletins avec l'IA
-4. **Conseil** : Utiliser l'interface de préparation des conseils
+### Workflow typique (un JSON par période)
+
+Chaque période a son propre dossier source et son propre fichier JSON. Les périodes sont ensuite reliées entre elles pour reconstruire la vue d'ensemble.
+
+1. **Sélection du dossier** : Choisir le dossier de la période à traiter (ex. `T1/`). La période est déduite du nom du dossier ou détectée depuis les colonnes Pronote.
+2. **Génération JSON** : Traiter les données. Le nom proposé suit la convention `output_<CODE>.json` (ex. `output_T1.json`) et **ne contient que cette période**.
+3. **Répéter par période** : Traiter `T2/` → `output_T2.json`, `T3/` → `output_T3.json`. Chaque fichier reste indépendant.
+4. **Lier les périodes** : Via le bouton **« 🔗 Périodes liées »**. Les JSON du même dossier sont auto-découverts ; vous pouvez aussi en ajouter/retirer manuellement. Les liens sont mémorisés dans le bloc `_metadata.period_links` du fichier courant.
+5. **Édition** : Parcourir et améliorer les bulletins avec l'IA. **Seule la période courante est éditable et sauvegardée** ; les périodes liées s'affichent en lecture seule.
+6. **Conseil** : Utiliser l'interface de préparation des conseils, qui agrège la période courante et les périodes liées (moyennes, absences, retards, évolution).
+
+> 💡 Pour une année trimestrielle, placez chaque export Pronote dans un dossier dédié (`T1/`, `T2/`, `T3/`) et générez un JSON par dossier, puis reliez-les. Le même principe s'applique au semestre (S1/S2).
 
 ### Obtention des fichiers csv
 1. **Connexion à Pronote** : Via l'ENT de votre établissement
@@ -166,10 +175,12 @@ BGRAPP_Pyconseil/
 │   │   ├── main_window.py   # Fenêtre principale
 │   │   ├── edition_window.py # Fenêtre d'édition
 │   │   ├── conseil_window.py # Fenêtre conseil
+│   │   ├── period_links_panel.py # Gestion des périodes liées (partagé)
 │   │   └── config_window.py  # Configuration IA
 │   ├── services/            # Services métier
 │   │   ├── main_processor.py    # Traitement principal
 │   │   ├── bulletin_processor.py # Logique bulletins
+│   │   ├── period_history.py    # Découverte/fusion des JSON par période
 │   │   ├── openai_service.py    # Service IA OpenAI
 │   │   ├── ai_config_service.py # Configuration IA
 │   │   ├── ai_connection_test_service.py # Tests connexion
@@ -195,52 +206,64 @@ BGRAPP_Pyconseil/
 ## 📝 Format des données
 
 ### Structure d'un bulletin (JSON)
+
+Les données sont stockées **par période** (suffixe `S1`/`S2` ou `T1`/`T2`/`T3`). Un fichier ne contient que la période de sa génération ; l'exemple ci-dessous montre un fichier de Trimestre 3 :
+
 ```json
 {
   "Nom": "DUPONT",
   "Prenom": "Alice",
-  "AppreciationGeneraleS1": "Bon travail d'ensemble",
-  "AppreciationGeneraleS2": "Des efforts constants", 
+  "AppreciationGeneraleT3": "Des efforts constants",
   "Matieres": {
     "Mathematiques": {
-      "HeuresAbsence": 3,
-      "MoyenneS1": 14.5,
-      "MoyenneS2": 13.0,
-      "MoyenneMax": 18.5,
-      "MoyenneMin": 9.0,
-      "AppreciationS1": "Bon travail d'ensemble",
-      "AppreciationS2": "Des efforts constants"
+      "HeuresAbsenceT3": "3h00",
+      "RetardsT3": 1,
+      "MoyenneT3": 13.0,
+      "MoyenneT3Min": 9.0,
+      "MoyenneT3Max": 18.5,
+      "AppreciationT3": "Des efforts constants"
     },
     "Francais": {
-      "HeuresAbsence": 0,
-      "MoyenneS1": 12.0,
-      "MoyenneS2": 14.0,
-      "MoyenneMax": 16.0,
-      "MoyenneMin": 10.0,
-      "AppreciationS1": "Participation en progrès",
-      "AppreciationS2": "Très bonne implication"
+      "HeuresAbsenceT3": "0h00",
+      "MoyenneT3": 14.0,
+      "MoyenneT3Min": 10.0,
+      "MoyenneT3Max": 16.0,
+      "AppreciationT3": "Très bonne implication"
     }
   }
 }
 ```
 
+> La vue d'ensemble (conseil) combine ce fichier avec les périodes liées (ex. `T1`, `T2`) pour afficher l'évolution des moyennes, sans jamais réécrire les autres fichiers.
+
 ### Métadonnées du fichier JSON
 
-Le fichier `output.json` commence par un objet `{"_metadata": {...}}` qui décrit le contexte de génération :
+Chaque fichier de période (ex. `output_T3.json`) commence par un objet `{"_metadata": {...}}` qui décrit le contexte de génération et les liens vers les autres périodes :
 
 ```json
 {
   "_metadata": {
-    "semester": "S1",
-    "semester_label": "Semestre 1",
-    "generated_at": "2025-11-23T15:42:00",
+    "current_period": "T3",
+    "period_system": "TRIMESTRE",
+    "period_label": "Trimestre 3",
+    "semester": "T3",
+    "generated_at": "2026-06-14T15:42:00",
     "matieres_count": 12,
-    "source_directory": "/chemin/vers/votre/dossier"
+    "source_directory": "/chemin/vers/votre/dossier/T3",
+    "period_links": {
+      "T1": "output_T1.json",
+      "T2": "output_T2.json"
+    },
+    "period_links_excluded": []
   }
 }
 ```
 
-Ce bloc permet aux interfaces de savoir immédiatement si l'on travaille sur le semestre 1 ou 2, d'adapter l'affichage (colonnes visibles, boutons IA) et d'éviter d'envoyer des informations inexistantes (historique d'absence, évolutions, etc.). Les bulletins suivent ensuite ce bloc métadonnées.
+- `current_period` / `period_system` / `period_label` : période et système (semestre/trimestre) du fichier, utilisés pour adapter l'affichage.
+- `period_links` : liens manuels vers les JSON des autres périodes (chemins relatifs au fichier courant). Les fichiers du même dossier sont en plus **auto-découverts**.
+- `period_links_excluded` : périodes auto-découvertes que l'utilisateur a explicitement retirées.
+
+Les bulletins suivent ensuite ce bloc métadonnées. À l'ouverture, les périodes liées sont chargées et fusionnées **en lecture seule** pour reconstruire la vue multi-périodes, sans jamais modifier les autres fichiers.
 
 ## 🧪 Tests
 
@@ -321,4 +344,4 @@ Si ce projet vous aide dans votre travail quotidien et que vous souhaitez souten
 
 *Développé avec ❤️ pour faciliter le travail des équipes éducatives*
 
-**Version** : v0.3 - Standard OpenAI API (2026) 
+**Version** : v0.4 - Historique réparti (un JSON par période + périodes liées) (2026) 

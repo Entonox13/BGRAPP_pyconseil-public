@@ -6,8 +6,40 @@ Lit le fichier source.xlsx et les fichiers CSV par matière.
 
 import pandas as pd
 import os
+import re
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+
+
+def _natural_tokens(text: str):
+    """Découpe une chaîne en segments alternant texte et nombres."""
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", text)
+    ]
+
+
+def natural_sort_key(text: str):
+    """Clé de tri naturel (numérique) adaptée aux suffixes « (n) ».
+
+    - « export(2) » est classé avant « export(10) » (tri numérique et non
+      alphabétique où « (10) » précèderait « (2) ») ;
+    - le fichier sans suffixe passe en premier de son groupe :
+      « export.csv » avant « export(1).csv ».
+    """
+    path = Path(text)
+    stem = path.stem
+    ext = path.suffix.lower()
+
+    match = re.match(r"^(.*?)\((\d+)\)\s*$", stem)
+    if match:
+        base = match.group(1).rstrip()
+        index = int(match.group(2))
+    else:
+        base = stem
+        index = -1  # pas de suffixe « (n) » -> premier de son groupe
+
+    return (_natural_tokens(base), index, ext)
 
 
 class FileReaderError(Exception):
@@ -135,8 +167,9 @@ def get_csv_files_in_directory(directory_path: str) -> List[str]:
     
     for file_path in directory.glob("*.csv"):
         csv_files.append(str(file_path))
-    
-    return sorted(csv_files)  # Tri pour un ordre prévisible
+
+    # Tri naturel sur le nom de fichier : export(2) avant export(10)
+    return sorted(csv_files, key=lambda p: natural_sort_key(Path(p).name))
 
 
 def extract_matiere_name_from_filename(file_path: str) -> str:

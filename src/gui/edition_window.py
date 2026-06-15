@@ -25,6 +25,13 @@ try:
         period_system_from_metadata,
     )
     from ..services.json_generator import save_output_json
+    from ..services.period_history import (
+        resolve_period_links,
+        load_history_bulletins,
+        build_display_bulletins,
+    )
+    from .period_links_panel import open_period_links_dialog
+    from ..utils.paths import get_documents_dir
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -39,6 +46,14 @@ except ImportError:
         period_system_from_metadata,
     )
     from services.json_generator import save_output_json
+    from services.period_history import (
+        resolve_period_links,
+        load_history_bulletins,
+        build_display_bulletins,
+    )
+    sys.path.insert(0, str(Path(__file__).parent))
+    from period_links_panel import open_period_links_dialog
+    from utils.paths import get_documents_dir
 
 
 class EditionWindow:
@@ -49,9 +64,19 @@ class EditionWindow:
         self.parent_window = parent_window
         self.json_file_path = json_file_path
         self.bulletins: List[Bulletin] = []
+        # Bulletins enrichis des periodes liees (lecture seule, colonnes)
+        self.display_bulletins: List[Bulletin] = []
         self.current_bulletin_index: int = 0
-        self.period: Period = initial_semester or Period.S2
+        # Période du fichier JSON (édition / sauvegarde / métadonnées) — immuable après chargement
+        self._file_period: Period = initial_semester or Period.S2
+        # Période affichée dans le sélecteur (consultation des colonnes liées, lecture seule)
+        self.period: Period = self._file_period
+        # Période imposée par l'appelant (sélection manuelle dans la fenêtre
+        # principale) : prioritaire sur la détection automatique au 1er chargement.
+        self._forced_initial_period: Optional[Period] = initial_semester
         self.period_codes: List[str] = self._default_period_codes()
+        # Périodes éditables : uniquement la période du fichier (un JSON par période)
+        self.editable_codes: List[str] = [self._file_period.value]
         self.metadata: Dict[str, Any] = {}
         self.appreciation_widgets: List[Any] = []
         self.appreciation_texts: Dict[str, tk.Text] = {}
@@ -104,16 +129,22 @@ class EditionWindow:
 
     @property
     def semester(self) -> Period:
-        """Alias rétro-compatible de la période courante."""
-        return self.period
+        """Alias rétro-compatible : période du fichier (édition / IA / sauvegarde)."""
+        return self._file_period
 
     @semester.setter
     def semester(self, value: Period) -> None:
+        self._file_period = value
         self.period = value
 
+    @property
+    def file_period(self) -> Period:
+        """Période réellement stockée dans le fichier JSON courant."""
+        return self._file_period
+
     def _default_period_codes(self) -> List[str]:
-        """Codes de période par défaut selon le système courant."""
-        system = self.period.system if hasattr(self, 'period') else PeriodSystem.SEMESTRE
+        """Codes de période par défaut selon le système du fichier."""
+        system = self._file_period.system if hasattr(self, '_file_period') else PeriodSystem.SEMESTRE
         return [p.value for p in periods_for_system(system)]
 
     def _determine_period(self, metadata: Optional[Dict[str, Any]], data: List[Dict[str, Any]]) -> Period:
@@ -123,25 +154,40 @@ class EditionWindow:
             return period
         return infer_period_from_bulletins_data(data)
 
+    def _merge_linked_periods(self, current_bulletins: List[Bulletin]) -> List[Bulletin]:
+        """
+        Construit une copie des bulletins enrichie des périodes liées (lecture
+        seule) pour l'affichage des colonnes ; n'altère pas self.bulletins.
+        """
+        if not self.json_file_path:
+            return list(current_bulletins)
+        try:
+            links = resolve_period_links(self.json_file_path, self.metadata, self._file_period.value)
+            if not links:
+                return build_display_bulletins(current_bulletins, {}, self._file_period.value)
+            history = load_history_bulletins(links)
+            return build_display_bulletins(current_bulletins, history, self._file_period.value)
+        except Exception:
+            return list(current_bulletins)
+
     def _compute_period_codes(self) -> List[str]:
         """
-        Toutes les périodes réellement présentes dans les bulletins (ordre
-        canonique), sans filtrage par système afin de ne masquer aucune
-        donnée (ex: des données S1 mêlées à une structure trimestre).
+        Toutes les périodes réellement présentes (période courante + périodes
+        liées fusionnées pour l'affichage), dans l'ordre canonique.
         """
         present = set()
-        for bulletin in self.bulletins:
-            for code, texte in bulletin.appreciations_generales.items():
-                if texte:
-                    present.add(code)
+        source = self.display_bulletins or self.bulletins
+        for bulletin in source:
             for appreciation in bulletin.matieres.values():
                 present.update(appreciation.periodes.keys())
+        # Toujours inclure la période du fichier (même si vide)
+        present.add(self._file_period.value)
         
         if present:
             return [c for c in PERIOD_CODES if c in present]
         
-        # Aucune donnée : colonnes par défaut du système (métadonnées/période)
-        system = period_system_from_metadata(self.metadata) or self.period.system
+        # Aucune donnée : colonnes par défaut du système (métadonnées/période fichier)
+        system = period_system_from_metadata(self.metadata) or self._file_period.system
         return [p.value for p in periods_for_system(system)]
 
     def _apply_period_ui_state(self):
@@ -150,12 +196,15 @@ class EditionWindow:
             return
         
         self.period_codes = self._compute_period_codes()
+        # Seule la période du fichier est éditable (un JSON par période)
+        self.editable_codes = [self._file_period.value]
         self._configure_subjects_columns()
         self._build_appreciation_widgets()
         self._build_general_widgets()
+        self._refresh_period_selector()
         
-        # Libellés des boutons en fonction de la période courante
-        code = self.period.value
+        # Libellés des boutons IA : période du fichier uniquement
+        code = self._file_period.value
         if hasattr(self, 'current_generate_btn'):
             self.current_generate_btn.config(text=f"✨ Générer appréciation {code}")
         if hasattr(self, 'generate_btn'):
@@ -164,12 +213,13 @@ class EditionWindow:
     def _metadata_for_save(self) -> Dict[str, Any]:
         """Prépare le bloc _metadata à écrire en tête du JSON."""
         metadata = dict(self.metadata) if self.metadata else {}
+        fp = self._file_period
         metadata.update({
-            "semester": self.period.value,
-            "current_period": self.period.value,
-            "period_system": self.period.system.value,
-            "period_label": self.period.label,
-            "semester_label": self.period.label,
+            "semester": fp.value,
+            "current_period": fp.value,
+            "period_system": fp.system.value,
+            "period_label": fp.label,
+            "semester_label": fp.label,
             "saved_at": datetime.utcnow().isoformat(timespec="seconds"),
         })
         return metadata
@@ -178,7 +228,7 @@ class EditionWindow:
         """Crée la barre d'outils"""
         toolbar_frame = ttk.Frame(parent)
         toolbar_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        toolbar_frame.columnconfigure(2, weight=1)
+        toolbar_frame.columnconfigure(3, weight=1)
         
         # Titre
         ttk.Label(toolbar_frame, text="📝 Édition des bulletins", style='Title.TLabel').grid(row=0, column=0, sticky=tk.W)
@@ -186,14 +236,69 @@ class EditionWindow:
         # Bouton charger
         self.load_btn = ttk.Button(toolbar_frame, text="📂 Charger JSON", command=self._load_json_file)
         self.load_btn.grid(row=0, column=1, padx=(20, 10))
+
+        # Bouton périodes liées (autres JSON)
+        self.period_links_btn = ttk.Button(toolbar_frame, text="🔗 Périodes liées", command=self._open_period_links)
+        self.period_links_btn.grid(row=0, column=5, padx=(10, 10))
+        
+        # Sélecteur manuel de période (trimestre/semestre)
+        self._build_period_selector(toolbar_frame, 2)
         
         # Indicateur position
         self.position_label = ttk.Label(toolbar_frame, text="Aucun bulletin chargé", style='Info.TLabel')
-        self.position_label.grid(row=0, column=2, sticky=tk.E)
+        self.position_label.grid(row=0, column=3, sticky=tk.E)
         
         # Bouton retour
         self.back_btn = ttk.Button(toolbar_frame, text="◀ Retour", command=self._return_to_main)
-        self.back_btn.grid(row=0, column=3, padx=(10, 0))
+        self.back_btn.grid(row=0, column=4, padx=(10, 0))
+
+    def _build_period_selector(self, parent, column):
+        """Crée le sélecteur de période affichée (consultation, lecture seule)."""
+        selector_frame = ttk.Frame(parent)
+        selector_frame.grid(row=0, column=column, padx=(0, 15))
+        ttk.Label(selector_frame, text="Afficher :", style='Info.TLabel').grid(
+            row=0, column=0, padx=(0, 5)
+        )
+        self.period_var = tk.StringVar()
+        self.period_combo = ttk.Combobox(
+            selector_frame,
+            textvariable=self.period_var,
+            state='readonly',
+            width=14,
+        )
+        self.period_combo.grid(row=0, column=1)
+        self.period_combo.bind('<<ComboboxSelected>>', self._on_period_selected)
+
+    def _refresh_period_selector(self):
+        """Synchronise le sélecteur avec les périodes disponibles (affichage)."""
+        if not hasattr(self, 'period_combo'):
+            return
+        codes = list(self.period_codes) if self.period_codes else [self._file_period.value]
+        if self.period.value not in codes:
+            codes = [self.period.value] + codes
+        self._period_choice_codes = codes
+        labels = [
+            (Period.from_code(code).label if Period.from_code(code) else code)
+            for code in codes
+        ]
+        self.period_combo['values'] = labels
+        try:
+            self.period_combo.current(codes.index(self.period.value))
+        except ValueError:
+            pass
+
+    def _on_period_selected(self, event=None):
+        """Change la période affichée (colonnes liées) sans modifier l'édition/sauvegarde."""
+        index = self.period_combo.current()
+        codes = getattr(self, '_period_choice_codes', [])
+        if index < 0 or index >= len(codes):
+            return
+        selected = Period.from_code(codes[index])
+        if not selected or selected == self.period:
+            return
+        self.period = selected
+        self._refresh_period_selector()
+        self._update_display()
     
     def _create_navigation_panel(self, parent, row, column):
         """Crée le panneau de navigation"""
@@ -323,7 +428,7 @@ class EditionWindow:
         self.appreciation_texts = {}
         
         row = 0
-        for code in self.period_codes:
+        for code in self.editable_codes:
             label = ttk.Label(self.appreciation_frame, text=f"Appréciation {code}:")
             label.grid(row=row, column=0, sticky=tk.W, pady=2)
             self.appreciation_widgets.append(label)
@@ -376,7 +481,7 @@ class EditionWindow:
         self.general_widgets.clear()
         self.general_texts = {}
         
-        for row, code in enumerate(self.period_codes):
+        for row, code in enumerate(self.editable_codes):
             frame = ttk.LabelFrame(self.general_container, text=f"Appréciation générale {code}", padding="5")
             frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
             frame.columnconfigure(0, weight=1)
@@ -411,11 +516,26 @@ class EditionWindow:
         file_path = filedialog.askopenfilename(
             title="Charger un fichier JSON de bulletins",
             filetypes=[("Fichiers JSON", "*.json"), ("Tous les fichiers", "*.*")],
-            initialdir=os.getcwd()
+            initialdir=get_documents_dir()
         )
         
         if file_path:
             self._load_bulletins_from_file(file_path)
+
+    def _open_period_links(self):
+        """Ouvre la gestion des JSON des autres périodes."""
+        if not self.json_file_path or not os.path.exists(self.json_file_path):
+            messagebox.showinfo(
+                "Information",
+                "Chargez d'abord un fichier JSON pour gérer les périodes liées."
+            )
+            return
+        open_period_links_dialog(
+            self.root,
+            self.json_file_path,
+            self._file_period.value,
+            on_change=lambda: self._load_bulletins_from_file(self.json_file_path),
+        )
     
     def _load_bulletins_from_file(self, file_path: str):
         """Charge les bulletins depuis un fichier"""
@@ -430,17 +550,27 @@ class EditionWindow:
                 data = raw_data[1:]
             
             self.metadata = metadata
-            self.period = self._determine_period(metadata, data)
+            # Période du fichier : toujours déduite du JSON (pas du sélecteur d'affichage)
+            self._file_period = self._determine_period(metadata, data)
+            if self._forced_initial_period is not None:
+                # Vue initiale imposée par l'appelant (consommée une fois)
+                self.period = self._forced_initial_period
+                self._forced_initial_period = None
+            else:
+                self.period = self._file_period
             
             self.bulletins = []
             for bulletin_data in data:
                 bulletin = Bulletin.from_dict(bulletin_data)
                 self.bulletins.append(bulletin)
             
+            self.json_file_path = file_path
+            # Fusionner (lecture seule) les periodes liees pour les colonnes
+            self.display_bulletins = self._merge_linked_periods(self.bulletins)
+            
             # Adapter les colonnes/sections aux périodes réellement présentes
             self._apply_period_ui_state()
             
-            self.json_file_path = file_path
             self.current_bulletin_index = 0
             
             self._update_bulletin_list()
@@ -491,11 +621,16 @@ class EditionWindow:
             self.current_generate_btn.config(state='normal')
     
     def _update_subjects_display(self, bulletin):
-        """Met à jour l'affichage des matières"""
+        """Met à jour l'affichage des matières (colonnes multi-périodes)."""
         for item in self.subjects_tree.get_children():
             self.subjects_tree.delete(item)
         
-        for nom_matiere, appreciation in bulletin.matieres.items():
+        # Utiliser la version fusionnée (périodes liées) pour les colonnes
+        display_bulletin = bulletin
+        if self.display_bulletins and self.current_bulletin_index < len(self.display_bulletins):
+            display_bulletin = self.display_bulletins[self.current_bulletin_index]
+        
+        for nom_matiere, appreciation in display_bulletin.matieres.items():
             values = [nom_matiere]
             for code in self.period_codes:
                 periode = appreciation.get_periode(code)
@@ -669,7 +804,7 @@ class EditionWindow:
         status_label.pack(pady=5)
         
         # Bouton annuler
-        cancelled = tk.BooleanVar(False)
+        cancelled = tk.BooleanVar(value=False)
         def cancel_operation():
             cancelled.set(True)
             
@@ -748,7 +883,7 @@ class EditionWindow:
         progress_window.resizable(False, False)
         progress_window.grab_set()
         
-        ttk.Label(progress_window, text=f"Génération des appréciations générales ({self.period.value})", font=('Arial', 12, 'bold')).pack(pady=10)
+        ttk.Label(progress_window, text=f"Génération des appréciations générales ({self._file_period.value})", font=('Arial', 12, 'bold')).pack(pady=10)
         
         progress_var = tk.DoubleVar()
         progress_bar = ttk.Progressbar(progress_window, variable=progress_var, maximum=100)
@@ -758,7 +893,7 @@ class EditionWindow:
         status_label.pack(pady=5)
         
         # Bouton annuler
-        cancelled = tk.BooleanVar(False)
+        cancelled = tk.BooleanVar(value=False)
         def cancel_operation():
             cancelled.set(True)
             
@@ -915,8 +1050,8 @@ class EditionWindow:
         
         bulletin = self.bulletins[self.current_bulletin_index]
         
-        # Collecter les appréciations de la période courante par matière
-        code = self.period.value
+        # Collecter les appréciations de la période du fichier par matière
+        code = self._file_period.value
         appreciations = {}
         for nom_matiere, matiere in bulletin.matieres.items():
             periode = matiere.get_periode(code)
@@ -956,7 +1091,7 @@ class EditionWindow:
                     appreciations,
                     bulletin.eleve.nom,
                     bulletin.eleve.prenom,
-                    semester=self.period
+                    semester=self.semester
                 )
                 bulletin.set_appreciation_generale(code, general_appreciation)
                 

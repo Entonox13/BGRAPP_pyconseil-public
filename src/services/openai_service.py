@@ -296,9 +296,13 @@ class AIService:
             bool: True si la connexion fonctionne
         """
         try:
-            # Utilise un minimum de tokens compatible avec l'API (>=16)
-            test_response = self._make_api_call("test", max_tokens=16, model=self.generation_model)
-            return bool(test_response)
+            # Un budget de 16 tokens peut être entièrement consommé par le
+            # raisonnement interne de certains modèles (gpt-5, o3, ...) et
+            # renvoyer un texte vide : la connexion est néanmoins valide.
+            # On considère donc le test réussi dès lors que l'appel n'a pas
+            # levé d'exception (cohérent avec le test de la fenêtre de config).
+            self._make_api_call("test", max_tokens=16, model=self.generation_model)
+            return True
         except Exception as e:
             self.logger.error(f"Erreur de connexion {self.provider.value}: {e}")
             return False

@@ -21,11 +21,18 @@ try:
     )
     from .config_window import ConfigWindow
     from .csv_renamer_window import CsvRenamerWindow
+    from .period_links_panel import open_period_links_dialog
+    from ..services.period_history import default_period_filename, resolve_period_links
     from ..utils.semester import (
+        Period,
         Semester,
         infer_semester_from_bulletins_data,
         semester_from_metadata,
+        available_periods_from_bulletins_data,
+        period_from_directory_name,
+        periods_for_system,
     )
+    from ..utils.paths import get_documents_dir
 except ImportError:
     # Fallback pour les tests et l'exécution directe
     import sys
@@ -39,11 +46,18 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from config_window import ConfigWindow
     from csv_renamer_window import CsvRenamerWindow
+    from period_links_panel import open_period_links_dialog
+    from services.period_history import default_period_filename, resolve_period_links
     from utils.semester import (
+        Period,
         Semester,
         infer_semester_from_bulletins_data,
         semester_from_metadata,
+        available_periods_from_bulletins_data,
+        period_from_directory_name,
+        periods_for_system,
     )
+    from utils.paths import get_documents_dir
 
 
 class MainWindow:
@@ -61,6 +75,9 @@ class MainWindow:
         self.selected_directory: Optional[str] = None
         self.output_json_path: Optional[str] = None
         self._last_semester: Semester = Semester.S2
+        # Période à imposer au traitement (déduite du nom du dossier ou choisie
+        # manuellement). None => détection automatique depuis les en-têtes CSV.
+        self._period_override: Optional[Period] = None
         
         # Configuration du style
         self._setup_styles()
@@ -226,6 +243,15 @@ class MainWindow:
             command=self._load_existing_json
         )
         self.load_json_btn.grid(row=0, column=1, padx=(0, 10))
+
+        # Bouton de gestion des periodes liees (autres JSON de periodes)
+        self.period_links_btn = ttk.Button(
+            process_frame,
+            text="🔗 Périodes liées",
+            command=self._open_period_links,
+            state='disabled'
+        )
+        self.period_links_btn.grid(row=0, column=2, padx=(0, 10))
         
         # Barre de progression
         self.progress = ttk.Progressbar(
@@ -233,8 +259,34 @@ class MainWindow:
             mode='indeterminate',
             length=250
         )
-        self.progress.grid(row=0, column=2, padx=(10, 0), sticky=(tk.W, tk.E))
-        process_frame.columnconfigure(2, weight=1)
+        self.progress.grid(row=0, column=3, padx=(10, 0), sticky=(tk.W, tk.E))
+        process_frame.columnconfigure(3, weight=1)
+
+        # Sélecteur manuel de la période active (trimestre/semestre)
+        period_frame = ttk.Frame(process_frame)
+        period_frame.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(12, 0))
+
+        ttk.Label(
+            period_frame,
+            text="🗓️ Période active :",
+            style='Subtitle.TLabel'
+        ).grid(row=0, column=0, padx=(0, 8))
+
+        self.period_var = tk.StringVar()
+        self.period_combo = ttk.Combobox(
+            period_frame,
+            textvariable=self.period_var,
+            state='disabled',
+            width=16
+        )
+        self.period_combo.grid(row=0, column=1)
+        self.period_combo.bind('<<ComboboxSelected>>', self._on_period_selected)
+
+        ttk.Label(
+            period_frame,
+            text="(détectée automatiquement — modifiable avant d'ouvrir l'édition ou le conseil)",
+            style='Info.TLabel'
+        ).grid(row=0, column=2, padx=(10, 0))
     
     def _create_navigation_section(self, parent: ttk.Frame, row: int):
         """Crée la section de navigation"""
@@ -308,12 +360,13 @@ class MainWindow:
         """Ouvre le dialog de sélection de dossier"""
         directory = filedialog.askdirectory(
             title="Sélectionner le dossier contenant les fichiers source",
-            initialdir=os.getcwd()
+            initialdir=get_documents_dir()
         )
         
         if directory:
             self.selected_directory = directory
             self._update_directory_display()
+            self._detect_period_from_directory()
             self._analyze_directory()
     
     def _update_directory_display(self):
@@ -383,13 +436,17 @@ class MainWindow:
         if not self.selected_directory:
             return
         
+        # Nom de fichier par defaut selon la periode active (un JSON par periode)
+        active_period = self._period_override or self._last_semester
+        default_name = default_period_filename(self.selected_directory, active_period.value)
+
         # Demander où sauvegarder le fichier
         output_path = filedialog.asksaveasfilename(
             title="Sauvegarder le fichier JSON",
             defaultextension=".json",
             filetypes=[("Fichiers JSON", "*.json"), ("Tous les fichiers", "*.*")],
-            initialdir=self.selected_directory,
-            initialfile="output.json"
+            initialdir=self.selected_directory or get_documents_dir(),
+            initialfile=default_name
         )
         
         if not output_path:
@@ -410,11 +467,12 @@ class MainWindow:
     def _process_json_thread(self):
         """Traitement JSON en arrière-plan"""
         try:
-            # Lancer le traitement
+            # Lancer le traitement (période imposée si déduite du dossier / choisie)
             result = process_directory_to_json(
                 self.selected_directory,
                 self.output_json_path,
-                validate_data=True
+                validate_data=True,
+                period_override=self._period_override
             )
             
             # Programmer la mise à jour de l'interface dans le thread principal
@@ -437,6 +495,10 @@ class MainWindow:
         self._log_message(f"💾 Fichier sauvé: {result['output_file']}", "success")
         detected_semester = self._parse_semester_string(result.get('semester'))
         self._remember_semester(detected_semester)
+        self._update_period_selector(
+            self._read_available_periods(self.output_json_path),
+            detected_semester
+        )
         
         # Afficher les avertissements s'il y en a
         if result['warnings']:
@@ -447,6 +509,8 @@ class MainWindow:
         # Activer les boutons de navigation
         self.edit_btn.config(state='normal')
         self.conseil_btn.config(state='normal')
+        self.period_links_btn.config(state='normal')
+        self._log_linked_periods()
         
         # Message de confirmation
         messagebox.showinfo(
@@ -474,7 +538,7 @@ class MainWindow:
         json_path = filedialog.askopenfilename(
             title="Sélectionner un fichier JSON",
             filetypes=[("Fichiers JSON", "*.json"), ("Tous les fichiers", "*.*")],
-            initialdir=os.getcwd()
+            initialdir=get_documents_dir()
         )
         
         if not json_path:
@@ -508,11 +572,17 @@ class MainWindow:
             
             detected_semester = semester_from_metadata(metadata) or infer_semester_from_bulletins_data(data)
             self._remember_semester(detected_semester)
+            self._update_period_selector(
+                available_periods_from_bulletins_data(data),
+                detected_semester
+            )
             
             # Si tout est OK, enregistrer le chemin et activer les boutons
             self.output_json_path = json_path
             self.edit_btn.config(state='normal')
             self.conseil_btn.config(state='normal')
+            self.period_links_btn.config(state='normal')
+            self._log_linked_periods()
             
             # Messages de succès
             self._log_message("✅ Fichier JSON chargé avec succès!", "success")
@@ -654,7 +724,104 @@ class MainWindow:
         self._last_semester = semester
         if log:
             self._log_message(f"🗂️ Période détectée: {semester.label}", "info")
+
+    def _detect_period_from_directory(self):
+        """Déduit la période depuis le nom du dossier sélectionné (T1/T2/T3/S1/S2)."""
+        folder_period = period_from_directory_name(self.selected_directory)
+        if folder_period is None:
+            self._period_override = None
+            self._log_message(
+                "ℹ️ Période non déduite du nom du dossier — détection automatique au traitement",
+                "info"
+            )
+            return
+
+        self._period_override = folder_period
+        self._remember_semester(folder_period, log=False)
+        # Proposer les périodes du même système, en sélectionnant celle du dossier
+        system_periods = periods_for_system(folder_period.system)
+        self._update_period_selector(system_periods, folder_period)
+        self._log_message(
+            f"🗓️ Période déduite du dossier: {folder_period.label}",
+            "success"
+        )
+
+    def _read_available_periods(self, json_path: str):
+        """Lit les périodes réellement présentes dans un fichier JSON de bulletins."""
+        try:
+            import json
+            with open(json_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+            data = raw_data
+            if raw_data and isinstance(raw_data[0], dict) and '_metadata' in raw_data[0]:
+                data = raw_data[1:]
+            return available_periods_from_bulletins_data(data)
+        except Exception:
+            return []
+
+    def _update_period_selector(self, available_periods, detected: Period):
+        """Alimente le sélecteur de période et le positionne sur la valeur détectée."""
+        periods = list(available_periods) if available_periods else []
+        if detected not in periods:
+            periods = [detected] + periods
+        self._available_periods = periods
+
+        self.period_combo['values'] = [p.label for p in periods]
+        self.period_combo.config(state='readonly')
+        try:
+            self.period_combo.current(periods.index(detected))
+        except ValueError:
+            self.period_combo.current(0)
+
+    def _on_period_selected(self, event=None):
+        """Applique la période choisie manuellement dans la fenêtre principale."""
+        index = self.period_combo.current()
+        periods = getattr(self, '_available_periods', [])
+        if index < 0 or index >= len(periods):
+            return
+        selected = periods[index]
+        self._period_override = selected
+        self._remember_semester(selected, log=False)
+        self._log_message(f"🗓️ Période sélectionnée: {selected.label}", "success")
     
+    def _open_period_links(self):
+        """Ouvre la gestion des JSON des autres périodes."""
+        if not self.output_json_path or not os.path.exists(self.output_json_path):
+            messagebox.showerror(
+                "Fichier manquant",
+                "Aucun fichier JSON courant.\n"
+                "Créez ou chargez d'abord un fichier JSON."
+            )
+            return
+        open_period_links_dialog(
+            self.root,
+            self.output_json_path,
+            self._last_semester.value,
+            on_change=self._log_linked_periods,
+        )
+
+    def _log_linked_periods(self):
+        """Journalise les périodes liées détectées pour le JSON courant."""
+        if not self.output_json_path or not os.path.exists(self.output_json_path):
+            return
+        try:
+            import json
+            with open(self.output_json_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+            metadata = {}
+            if raw_data and isinstance(raw_data[0], dict) and '_metadata' in raw_data[0]:
+                metadata = raw_data[0].get('_metadata') or {}
+            links = resolve_period_links(
+                self.output_json_path, metadata, self._last_semester.value
+            )
+        except Exception:
+            links = {}
+        if links:
+            codes = ", ".join(sorted(links))
+            self._log_message(f"🔗 Périodes liées détectées: {codes}", "info")
+        else:
+            self._log_message("🔗 Aucune période liée détectée", "info")
+
     def _open_config_window(self):
         """Ouvre la fenêtre de configuration IA"""
         self._log_message("🤖 Ouverture de la fenêtre de configuration IA...")
