@@ -161,18 +161,17 @@ def process_directory_to_json(source_directory: str,
         if not eleves_data:
             raise MainProcessorError("Aucun élève trouvé dans source.xlsx")
         
-        # 3. Créer les bulletins de base
-        bulletins = create_bulletins_from_source(eleves_data)
+        # Période initiale (override ou défaut) — utilisée pour lire source.xlsx
+        period = period_override if period_override is not None else Period.S2
+        period_detected = period_override is not None
+
+        # 3. Créer les bulletins de base (appréciations générales du source.xlsx)
+        bulletins = create_bulletins_from_source(eleves_data, period=period)
         result['bulletins_count'] = len(bulletins)
         
         # 4. Traiter chaque fichier CSV de matière
         csv_files = validation['csv_files']
         matieres_traitees = []
-        # Une période imposée (ex: déduite du nom du dossier) prime sur la
-        # détection automatique à partir des en-têtes des CSV.
-        period = period_override if period_override is not None else Period.S2
-        period_detected = period_override is not None
-        
         for csv_file in csv_files:
             matiere_name = extract_matiere_name_from_filename(csv_file)
             

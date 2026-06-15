@@ -282,7 +282,15 @@ class ConseilWindow:
         for bulletin in self.bulletins:
             for appreciation in bulletin.matieres.values():
                 present.update(appreciation.periodes.keys())
+            for code, texte in bulletin.appreciations_generales.items():
+                if texte and code in PERIOD_CODES:
+                    present.add(code)
         present.add(self.period.value)
+
+        system = period_system_from_metadata(self.metadata) or self.period.system
+        if system == PeriodSystem.TRIMESTRE:
+            present.discard("S1")
+            present.discard("S2")
         
         if present:
             return [c for c in PERIOD_CODES if c in present]

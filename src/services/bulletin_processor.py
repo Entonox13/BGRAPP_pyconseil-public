@@ -14,7 +14,7 @@ try:
         normalize_absence, absence_to_hours,
     )
     from .file_reader import FileReaderError
-    from ..utils.semester import Period
+    from ..utils.semester import Period, PeriodSystem, PERIOD_CODES
 except ImportError:
     # Fallback pour l'exécution directe via PYTHONPATH
     from models.bulletin import (
@@ -23,7 +23,7 @@ except ImportError:
         normalize_absence, absence_to_hours,
     )
     from services.file_reader import FileReaderError
-    from utils.semester import Period
+    from utils.semester import Period, PeriodSystem, PERIOD_CODES
 
 
 class BulletinProcessorError(Exception):
@@ -31,7 +31,34 @@ class BulletinProcessorError(Exception):
     pass
 
 
-def create_bulletins_from_source(eleves_data: List[Dict[str, Any]]) -> List[Bulletin]:
+_GENERAL_APPRECIATION_COLUMN_ALIASES = {
+    code: [
+        f"AppreciationGenerale{code}",
+        f"Appreciation {code}",
+        f"Appreciation{code}",
+    ]
+    for code in PERIOD_CODES
+}
+
+
+def _read_general_appreciation_value(eleve_dict: Dict[str, Any], code: str) -> Optional[str]:
+    """Lit une appréciation générale depuis les colonnes source.xlsx connues."""
+    for key in _GENERAL_APPRECIATION_COLUMN_ALIASES.get(code, []):
+        value = eleve_dict.get(key)
+        if value is None:
+            continue
+        if isinstance(value, float) and value != value:  # NaN
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def create_bulletins_from_source(
+    eleves_data: List[Dict[str, Any]],
+    period: Optional[Period] = None,
+) -> List[Bulletin]:
     """
     Crée les objets Bulletin à partir des données du fichier source.xlsx.
     
@@ -60,20 +87,27 @@ def create_bulletins_from_source(eleves_data: List[Dict[str, Any]]) -> List[Bull
             eleve = Eleve.from_full_name(nom_complet)
             
             # Créer le bulletin avec les appréciations générales s'il y en a
-            # Essayer plusieurs noms de colonnes pour la compatibilité
-            appreciation_s1 = (eleve_dict.get('AppreciationGeneraleS1') or 
-                              eleve_dict.get('Appreciation S1') or 
-                              eleve_dict.get('AppreciationS1'))
-            
-            appreciation_s2 = (eleve_dict.get('AppreciationGeneraleS2') or 
-                              eleve_dict.get('Appreciation S2') or 
-                              eleve_dict.get('AppreciationS2'))
-            
             bulletin = Bulletin(eleve=eleve)
-            if appreciation_s1:
-                bulletin.set_appreciation_generale("S1", appreciation_s1)
-            if appreciation_s2:
-                bulletin.set_appreciation_generale("S2", appreciation_s2)
+            skip_semestre_codes = (
+                period is not None and period.system == PeriodSystem.TRIMESTRE
+            )
+            for code in PERIOD_CODES:
+                if skip_semestre_codes and code in ("S1", "S2"):
+                    continue
+                texte = _read_general_appreciation_value(eleve_dict, code)
+                if texte:
+                    bulletin.set_appreciation_generale(code, texte)
+
+            # Rétro-compat : colonnes S1/S2 du source.xlsx utilisées pour T1/T2
+            if skip_semestre_codes:
+                if not bulletin.get_appreciation_generale("T1"):
+                    s1 = _read_general_appreciation_value(eleve_dict, "S1")
+                    if s1:
+                        bulletin.set_appreciation_generale("T1", s1)
+                if not bulletin.get_appreciation_generale("T2"):
+                    s2 = _read_general_appreciation_value(eleve_dict, "S2")
+                    if s2:
+                        bulletin.set_appreciation_generale("T2", s2)
             
             bulletins.append(bulletin)
             

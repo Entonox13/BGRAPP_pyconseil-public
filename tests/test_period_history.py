@@ -248,6 +248,22 @@ class TestLinkedPeriodNormalization:
             assert merged.get_periode("T3").moyenne == 14.0
             assert merged.get_periode("T2").moyenne == 12.0
 
+    def test_build_display_exposes_trimestre_general_appreciations(self):
+        """S1/S2 legacy sont visibles sous T1/T2 dans la vue conseil trimestre."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cur = os.path.join(tmp, "output_T3.json")
+            _write_period_file(cur, "T3", [
+                ("DUPONT", "Alice", {"Maths": PeriodeData(moyenne=14.0)}),
+            ], appreciation_generale="Appréciation T3")
+            bulletins = [Bulletin.from_dict(d) for d in read_payload(cur)[1]]
+            bulletins[0].set_appreciation_generale("S1", "Appréciation T1 via S1")
+            bulletins[0].set_appreciation_generale("S2", "Appréciation T2 via S2")
+
+            display = build_display_bulletins(bulletins, {}, "T3")
+            assert display[0].get_appreciation_generale("T1") == "Appréciation T1 via S1"
+            assert display[0].get_appreciation_generale("T2") == "Appréciation T2 via S2"
+            assert display[0].get_appreciation_generale("T3") == "Appréciation T3"
+
     def test_merge_matches_matiere_name_variants(self):
         """Fusionne malgré des libellés différents (espaces / abréviations)."""
         with tempfile.TemporaryDirectory() as tmp:

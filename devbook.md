@@ -1082,50 +1082,85 @@
 - **Maintenant** : **un fichier JSON par période** (ne contenant que sa période). Les autres périodes sont référencées par des **liens** et fusionnées **en lecture seule** uniquement pour l'affichage. Cette section **remplace** le mécanisme « Historique (output JSON) » cumulatif décrit plus haut (l'ancienne fonction est conservée mais n'est plus appelée par défaut).
 
 ### Décisions (validées avec l'utilisateur)
-- Association des périodes : **auto-découverte** (même dossier) **+** ajout/retrait **manuel**.
+- Association des périodes : **auto-découverte** (même dossier) **+** ajout/retrait **manuel** avec **attribution explicite de la période**.
 - Emplacement de la gestion : **fenêtre principale + édition + conseil**.
 - Contenu disque : **période courante uniquement** (plus d'accumulation dans le fichier).
 - Nommage par défaut : `output_<CODE>.json` (ex. `output_T3.json`).
-- Persistance des liens manuels : bloc `_metadata` du JSON courant.
+- Persistance des liens : bloc `_metadata` du JSON courant.
 
 ### Nouveau service — `src/services/period_history.py`
 - `read_payload()` / `update_file_metadata()` : lecture brute et réécriture ciblée du bloc `_metadata` (sans toucher aux bulletins).
-- `period_code_of_file()` : période d'un fichier (métadonnées puis inférence).
+- `period_code_of_file()` / `period_code_from_filename()` / `suggested_period_code_for_link()` : période d'un fichier (métadonnées, nom, dossier, contenu).
+- `effective_period_code_for_file()` : applique `period_link_overrides` avant la détection auto.
 - `default_period_filename()` : convention `output_<CODE>.json`.
-- `discover_sibling_period_files()` : auto-découverte des `*.json` du dossier (via `current_period`).
-- `resolve_period_links()` : ensemble effectif = auto-découverte (− `period_links_excluded`) surchargée par `period_links` (manuel). Chemins relatifs résolus en absolu.
-- `add_period_link()` / `remove_period_link()` : gestion des liens. **Note** : un retrait d'un fichier *aussi* auto-découvert ajoute le code à `period_links_excluded` (sinon il réapparaîtrait).
-- `load_history_bulletins()` + `build_display_bulletins()` (+ `merge_periods_into_bulletins()`) : fusion **non destructive** (copie profonde), sans filtrage par système, sans jamais écraser la période courante.
+- `discover_sibling_period_files()` : auto-découverte des `*.json` du dossier (avec surcharges).
+- `resolve_period_links()` : ensemble effectif = auto-découverte (− `period_links_excluded`) surchargée par `period_links` (manuel).
+- `add_period_link(..., period_code=)` / `set_period_link_code()` / `remove_period_link()` : gestion des liens et correction d'attribution.
+- `normalize_linked_bulletins()` / `remap_bulletins_period_code()` : si un JSON lié en T2 contient encore des clés S2, remappage vers T2 à l'import.
+- `_matiere_canonical_key()` / `_resolve_matiere_name()` : rapprochement des libellés de matières à la fusion (`Anglais LV1` ↔ `AnglaisLV1`, `EPS` ↔ `EducationPhysiqueSportive`, …).
+- `normalize_trimestre_general_appreciations()` : expose S1/S2 sous T1/T2 à l'affichage trimestre (sans doublons).
+- `load_history_bulletins()` + `build_display_bulletins()` (+ `merge_periods_into_bulletins()`) : fusion **non destructive** (copie profonde), sans jamais écraser la période courante.
+
+### `bulletin_processor.py` — `source.xlsx`
+- `create_bulletins_from_source(eleves_data, period=)` : lit les colonnes `AppreciationGeneraleT1`…`T3` ou `S1`/`S2`.
+- En **trimestre** : les colonnes legacy `AppreciationGeneraleS1` / `S2` sont interprétées comme **T1** / **T2** (pas stockées en S1/S2).
+- `main_processor` passe la période active (override ou détection) dès la lecture du xlsx.
 
 ### `main_processor.py`
 - `process_directory_to_json(..., merge_history=False)` : la fusion historique dans le fichier écrit est **désactivée par défaut** → le fichier ne contient que la période courante. `merge_history_into_bulletins()` est **conservée** (rétro-compat) mais non appelée par défaut.
 
 ### Composant UI partagé — `src/gui/period_links_panel.py`
-- `PeriodLinksDialog` / `open_period_links_dialog()` : tableau Période / Fichier / Origine (Auto/Manuel), boutons Ajouter / Retirer. Persiste dans `_metadata` du fichier courant puis déclenche un `on_change` (rechargement). Réutilisé par les 3 fenêtres.
+- `PeriodLinksDialog` : tableau Période / Fichier / Origine (Auto / Manuel / Corrigé).
+- Boutons **Ajouter** (choix du fichier + **attribution de la période**), **Modifier la période**, **Retirer**.
+- Persiste dans `_metadata` puis déclenche `on_change` (rechargement). Réutilisé par les 3 fenêtres.
 
 ### Fenêtres
-- **`main_window.py`** : nom par défaut `output_<CODE>.json` (selon période active) ; bouton **« 🔗 Périodes liées »** ; journalisation des périodes liées détectées.
-- **`conseil_window.py`** (lecture seule) : `_merge_linked_periods()` fusionne les périodes liées dans la liste affichée (colonnes/évolution/appréciations « fonctionnent tel quel ») ; bouton dédié (rechargement sur changement).
-- **`edition_window.py`** : `self.bulletins` = **période courante seule** (édition/sauvegarde) ; `self.display_bulletins` = fusion (lecture seule) pour les colonnes ; widgets éditables pilotés par `editable_codes = [période courante]` ; `_metadata_for_save()` conserve `period_links`/`period_links_excluded`. Bouton dédié.
+- **`main_window.py`** : nom par défaut `output_<CODE>.json` ; bouton **« 🔗 Périodes liées »** ; journalisation des périodes liées.
+- **`conseil_window.py`** : `_merge_linked_periods()` ; colonnes et appréciations générales multi-périodes ; masque S1/S2 en mode trimestre.
+- **`edition_window.py`** : `_file_period` (édition/sauvegarde) vs `period` (sélecteur **Afficher**, lecture seule) ; `display_bulletins` pour les colonnes liées ; `editable_codes = [période du fichier]`.
 
-### Métadonnées (nouveaux champs)
-- `period_links` : `{ "<CODE>": "chemin_relatif.json" }` (liens manuels).
+### Métadonnées (champs liés)
+- `period_links` : `{ "<CODE>": "chemin.json" }` (liens manuels, chemin relatif ou absolu).
+- `period_link_overrides` : `{ "chemin.json": "<CODE>" }` (période forcée pour un fichier).
 - `period_links_excluded` : `["<CODE>", ...]` (auto-découvertes retirées).
 
-### Workflow utilisateur (nouveau)
-1. Traiter `T1/` → `output_T1.json` (T1 seul).
-2. Traiter `T2/` → `output_T2.json` ; `T3/` → `output_T3.json` (fichiers indépendants).
-3. **« 🔗 Périodes liées »** : auto-découverte des JSON du dossier + ajout/retrait manuel.
-4. Édition : édite/sauvegarde **uniquement** la période courante ; autres périodes en lecture seule.
-5. Conseil : vue d'ensemble multi-périodes reconstruite à partir des liens.
+### Workflow utilisateur (détaillé)
+
+**Organisation recommandée** : un dossier par période (`PP/T1/`, `PP/T2/`, `PP/T3/`), chacun avec ses CSV et son `source.xlsx`.
+
+1. **T1** : traiter `T1/` → `output_T1.json` (ou `output.json` dans le dossier).
+2. **T2** : idem pour `T2/`.
+3. **T3** : optionnellement renseigner `AppreciationGeneraleT1` et `AppreciationGeneraleT2` dans `T3/source.xlsx` pour importer des générales déjà rédigées ; traiter `T3/`.
+4. **Lier** : ouvrir le JSON pivot (souvent T3) → **🔗 Périodes liées** → ajouter manuellement `T1/output.json` et `T2/output.json` (l'auto-découverte ne voit que le même dossier) ; vérifier/corriger la période attribuée.
+5. **Édition** : modifier uniquement la période du fichier ; consulter T1/T2 en lecture seule.
+6. **Conseil** : vue agrégée T1+T2+T3 (moyennes, absences, évolution, appréciations générales).
+
+**Pièges identifiés (juin 2026)** :
+- JSON anciens avec libellés de matières différents (`Anglais LV1` vs `AnglaisLV1`) : **régénérer** depuis les CSV actuels.
+- Fichier lié avec suffixes S1/S2 au lieu de T1/T2 : utiliser **Modifier la période** ou régénérer.
+- Colonnes `AppreciationGeneraleS1/S2` dans un xlsx trimestre : acceptées à la génération mais préférer `AppreciationGeneraleT1/T2`.
 
 ### Tests
-- `tests/test_period_history.py` (12 tests) : nommage, payload, découverte, résolution (auto/manuel/exclusion), ajout/retrait, fusion sans écrasement ni mutation de la source, + test garde (exemples) vérifiant l'absence d'accumulation.
-- Suites non-GUI (`test_processor.py`, `test_models.py`) inchangées et vertes.
-- Les échecs des tests GUI (Mock/Tk) sont **préexistants** et indépendants de cette refonte (vérifié sur la version commitée).
+- `tests/test_period_history.py` (~20 tests) : liens, surcharges, remappage période/matière, fusion, générales trimestre, garde édition `_file_period`.
+- `tests/test_processor.py` : lecture trimestre du `source.xlsx` (S1/S2 → T1/T2).
+- Suites non-GUI inchangées et vertes ; échecs GUI (Mock/Tk) préexistants.
 
 ---
 
+## Compléments post-refonte : liens, fusion, source.xlsx (15/06/2026, session 2)
+
+Corrections et enrichissements après retours terrain (dossier `PP/T1`, `T2`, `T3`).
+
+| Problème | Cause | Correction |
+|----------|-------|------------|
+| T2 détecté en S2 | Métadonnées / contenu legacy | Attribution manuelle + `period_link_overrides` + remappage à l'import |
+| Colonnes T2 vides en édition | Noms de matières différents entre JSON | `_resolve_matiere_name()` à la fusion ; régénération recommandée |
+| Générales T1/T2 absentes du conseil | Colonnes S1/S2 dans xlsx trimestre + affichage T1/T2/T3 | Lecture T1/T2 à la génération ; `normalize_trimestre_general_appreciations()` |
+| Doublons S1 S2 T1 T2 au conseil | Copie S1→T1 sans retrait | Retrait S1/S2 après normalisation ; filtre conseil en trimestre |
+
+---
+
+**Document version 2.1 - Liens avec attribution manuelle, fusion matières/périodes, source.xlsx trimestre (T1/T2/T3), workflow multi-dossiers (15/06/2026)**
 **Document version 2.0 - Refonte historique : un JSON par période + périodes liées (auto-découverte + manuel), édition limitée à la période courante (15/06/2026)**
 **Document version 1.9 - Corrections GUI (widgets général conseil, métadonnées à la sauvegarde édition), workflow publication privé→public (14/06/2026)**
 **Document version 1.8 - Support semestre/trimestre, retards, historique JSON, colonnes GUI dynamiques (14/06/2026)**

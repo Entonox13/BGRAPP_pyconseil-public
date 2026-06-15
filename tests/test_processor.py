@@ -112,6 +112,21 @@ class TestBulletinProcessor:
         assert bulletins[0].eleve.prenom == "Alice"
         assert bulletins[1].eleve.nom == "MARTIN"
         assert bulletins[1].eleve.prenom == "Jean-Paul"
+
+    def test_create_bulletins_trimestre_maps_s1_s2_columns_to_t1_t2(self):
+        """Les colonnes S1/S2 du source.xlsx sont lues comme T1/T2 en trimestre."""
+        from src.utils.semester import Period
+
+        eleves_data = [{
+            'Élève': 'DUPONT Alice',
+            'AppreciationGeneraleS1': 'Appréciation trimestre 1',
+            'AppreciationGeneraleS2': 'Appréciation trimestre 2',
+        }]
+        bulletins = create_bulletins_from_source(eleves_data, period=Period.T3)
+        bulletin = bulletins[0]
+        assert bulletin.get_appreciation_generale("T1") == 'Appréciation trimestre 1'
+        assert bulletin.get_appreciation_generale("T2") == 'Appréciation trimestre 2'
+        assert bulletin.get_appreciation_generale("S1") is None
     
     def test_parse_rappel_s1(self):
         """Test le parsing de la colonne rappel S1."""

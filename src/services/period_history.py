@@ -34,6 +34,7 @@ try:
     from ..utils.semester import (
         PERIOD_CODES,
         Period,
+        PeriodSystem,
         period_from_metadata,
         infer_period_from_bulletins_data,
         period_from_directory_name,
@@ -44,6 +45,7 @@ except ImportError:
     from utils.semester import (
         PERIOD_CODES,
         Period,
+        PeriodSystem,
         period_from_metadata,
         infer_period_from_bulletins_data,
         period_from_directory_name,
@@ -702,6 +704,26 @@ def merge_periods_into_bulletins(
                     current_app.periodes[code] = copy.deepcopy(periode)
 
 
+def normalize_trimestre_general_appreciations(bulletin: Bulletin) -> None:
+    """
+    Expose les appreciations S1/S2 sous T1/T2 pour l'affichage trimestre.
+
+    Utile pour les JSON generes avec d'anciennes colonnes source.xlsx
+    (AppreciationGeneraleS1/S2) ou des fichiers lies encore en suffixe semestre.
+    """
+    if not bulletin.get_appreciation_generale("T1"):
+        s1 = bulletin.get_appreciation_generale("S1")
+        if s1:
+            bulletin.set_appreciation_generale("T1", s1)
+    if not bulletin.get_appreciation_generale("T2"):
+        s2 = bulletin.get_appreciation_generale("S2")
+        if s2:
+            bulletin.set_appreciation_generale("T2", s2)
+    # Eviter les doublons S1/S2 + T1/T2 dans la vue trimestre
+    bulletin.appreciations_generales.pop("S1", None)
+    bulletin.appreciations_generales.pop("S2", None)
+
+
 def build_display_bulletins(
     current_bulletins: List[Bulletin],
     history_by_code: Mapping[str, List[Bulletin]],
@@ -725,4 +747,8 @@ def build_display_bulletins(
     display = copy.deepcopy(current_bulletins)
     for _code, other_bulletins in history_by_code.items():
         merge_periods_into_bulletins(display, other_bulletins, current_code)
+    current_period = Period.from_code(current_code)
+    if current_period and current_period.system == PeriodSystem.TRIMESTRE:
+        for bulletin in display:
+            normalize_trimestre_general_appreciations(bulletin)
     return display

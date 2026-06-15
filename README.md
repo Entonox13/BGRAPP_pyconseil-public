@@ -13,7 +13,7 @@ Une application Python avec interface graphique pour centraliser et traiter les 
 ### 🔄 Traitement des données
 - **Import automatique** : Traitement des fichiers Excel (liste élèves) et CSV (notes par matière)
 - **Un JSON par période** : Chaque période (S1/S2 ou T1/T2/T3) est sauvegardée dans son propre fichier (ex. `output_T3.json`), ne contenant que cette période
-- **Périodes liées** : Les autres périodes sont référencées via des liens (auto-découverte des JSON du même dossier + ajout/retrait manuel) et fusionnées en lecture seule pour la vue d'ensemble
+- **Périodes liées** : Les autres périodes sont référencées via des liens (auto-découverte dans le même dossier + ajout manuel avec **attribution de la période**) et fusionnées en lecture seule pour la vue d'ensemble
 - **Vérification de cohérence** : Correspondance automatique entre nombre d'élèves et bulletins générés
 - **Détection automatique de la période** : Analyse des colonnes Pronote (et du nom du dossier) pour distinguer S1/S2/T1/T2/T3 et adapter tout le pipeline
 
@@ -28,7 +28,7 @@ Une application Python avec interface graphique pour centraliser et traiter les 
 - **Fenêtre principale** : Sélection du dossier de travail et lancement des traitements
 - **Fenêtre d'édition** : Visualisation et édition de la **période courante** ; les périodes liées apparaissent en lecture seule
 - **Fenêtre conseil** : Vue d'ensemble multi-périodes (synthèse, évolution) reconstruite à partir des périodes liées
-- **Bouton « 🔗 Périodes liées »** : Présent dans les trois fenêtres pour gérer les JSON des autres périodes
+- **Bouton « 🔗 Périodes liées »** : Présent dans les trois fenêtres ; permet d'ajouter un JSON, de **choisir ou corriger la période** associée (ex. un fichier T2 mal détecté en S2), et de retirer un lien
 - Les fenêtres d'édition/conseil s'adaptent automatiquement à la période et aux périodes liées présentes (colonnes Moy./Abs./Ret. et évolution dynamiques)
 
 ## 🚀 Installation
@@ -133,28 +133,87 @@ python main.py
 ```
 
 ### Structure des fichiers d'entrée
-Votre dossier de travail doit contenir : un fichier .csv par matière (nommé selon la matière); un fichier source.xlsx contenant les noms les appréciations du semestre précédent(il est préférable de travailler à partir du fichier source.xlsx afin de respecter la forme des données attendues).
+
+Chaque **période** dispose de son propre dossier de travail (recommandé : `T1/`, `T2/`, `T3/` ou `S1/`, `S2/`). Ce dossier contient :
+
 ```
-dossier_de_travail/
-├── source.xlsx          # Liste des élèves
-├── mathematiques.csv    # Notes de mathématiques
-├── francais.csv        # Notes de français
-├── histoire_geo.csv    # Notes d'histoire-géographie
-└── ...                 # Autres matières
+dossier_T3/                 # Exemple : trimestre 3
+├── source.xlsx             # Liste des élèves + appréciations générales (optionnel)
+├── AnglaisLV1.csv          # Un CSV par matière (nom = nom de la matière)
+├── Maths1.csv
+└── ...
 ```
+
+#### Fichier `source.xlsx`
+
+| Colonne | Semestre | Trimestre |
+|---------|----------|-----------|
+| `Élève` | Obligatoire | Obligatoire |
+| `AppreciationGeneraleS1` / `S2` | Appréciations générales S1 et S2 | — |
+| `AppreciationGeneraleT1` / `T2` / `T3` | — | Appréciations générales par trimestre |
+
+En **trimestre**, pour reprendre des appréciations générales déjà rédigées (T1, T2) lors de la génération du T3, placez-les dans le `source.xlsx` du dossier T3 sous les colonnes `AppreciationGeneraleT1` et `AppreciationGeneraleT2`. Les anciennes colonnes `AppreciationGeneraleS1` / `S2` sont encore acceptées à la génération (elles sont interprétées comme T1 / T2).
+
+> Il est préférable de partir du modèle `source.xlsx` fourni avec l'application pour respecter la forme des données attendues.
 
 ### Workflow typique (un JSON par période)
 
-Chaque période a son propre dossier source et son propre fichier JSON. Les périodes sont ensuite reliées entre elles pour reconstruire la vue d'ensemble.
+Chaque période a son **propre dossier source** et son **propre fichier JSON**. Les périodes sont ensuite reliées pour reconstruire la vue d'ensemble (édition, conseil).
 
-1. **Sélection du dossier** : Choisir le dossier de la période à traiter (ex. `T1/`). La période est déduite du nom du dossier ou détectée depuis les colonnes Pronote.
-2. **Génération JSON** : Traiter les données. Le nom proposé suit la convention `output_<CODE>.json` (ex. `output_T1.json`) et **ne contient que cette période**.
-3. **Répéter par période** : Traiter `T2/` → `output_T2.json`, `T3/` → `output_T3.json`. Chaque fichier reste indépendant.
-4. **Lier les périodes** : Via le bouton **« 🔗 Périodes liées »**. Les JSON du même dossier sont auto-découverts ; vous pouvez aussi en ajouter/retirer manuellement. Les liens sont mémorisés dans le bloc `_metadata.period_links` du fichier courant.
-5. **Édition** : Parcourir et améliorer les bulletins avec l'IA. **Seule la période courante est éditable et sauvegardée** ; les périodes liées s'affichent en lecture seule.
-6. **Conseil** : Utiliser l'interface de préparation des conseils, qui agrège la période courante et les périodes liées (moyennes, absences, retards, évolution).
+#### 1. Préparer les dossiers par période
 
-> 💡 Pour une année trimestrielle, placez chaque export Pronote dans un dossier dédié (`T1/`, `T2/`, `T3/`) et générez un JSON par dossier, puis reliez-les. Le même principe s'applique au semestre (S1/S2).
+```
+PP/
+├── T1/          # CSV Pronote du trimestre 1 + source.xlsx
+├── T2/          # CSV du trimestre 2
+└── T3/          # CSV du trimestre 3 (+ éventuellement T1/T2 dans source.xlsx)
+```
+
+Renommez les CSV avec l'outil intégré ou manuellement (`AnglaisLV1.csv`, `Maths1.csv`, … — **sans espaces**, comme généré par le processeur).
+
+#### 2. Générer un JSON par période
+
+Pour **chaque** dossier (`T1/`, puis `T2/`, puis `T3/`) :
+
+1. **Sélectionner le dossier** dans la fenêtre principale (ex. `T3/`). La période est déduite du nom du dossier ou des colonnes Pronote ; vérifiez le sélecteur **Période** si besoin.
+2. **Générer le JSON** : le nom proposé suit `output_<CODE>.json` (ex. `output_T3.json`). Le fichier ne contient **que la période courante** (pas d'accumulation des trimestres précédents).
+3. **Prétraitement / IA** (optionnel) : édition des appréciations par matière et génération des appréciations générales pour la période en cours.
+
+> Régénérez chaque période avec la version actuelle de l'application si des JSON plus anciens utilisent d'autres conventions (noms de matières avec espaces, suffixes S1/S2 au lieu de T1/T2, etc.).
+
+#### 3. Lier les périodes entre elles
+
+Ouvrez le JSON de la période « pivot » (souvent le dernier trimestre, ex. `T3/output.json`) puis **🔗 Périodes liées** :
+
+- **Auto-découverte** : les autres `*.json` du **même dossier** sont détectés automatiquement.
+- **Ajout manuel** : indispensable lorsque les JSON sont dans des sous-dossiers (`T1/output.json`, `T2/output.json`, …). Choisissez le fichier, puis **attribuez la période** (T1, T2, …) dans le dialogue.
+- **Modifier la période** : corrige une attribution erronée (ex. fichier détecté en S2 alors qu'il s'agit de T2).
+- **Retirer** : masque une période auto-découverte ou supprime un lien manuel.
+
+Les liens sont mémorisés dans `_metadata` du fichier courant (`period_links`, `period_link_overrides`, `period_links_excluded`).
+
+#### 4. Édition
+
+- **Période éditable** : uniquement celle du fichier ouvert (ex. T3 dans `output_T3.json`).
+- **Colonnes liées** : T1, T2, … apparaissent en **lecture seule** pour consultation.
+- Le sélecteur **Afficher** change la période consultée dans le tableau des matières, sans modifier ce qui est sauvegardé.
+
+#### 5. Conseil de classe
+
+- Charge le JSON de la période courante ; fusionne automatiquement les **périodes liées**.
+- Affiche synthèse multi-périodes (moyennes, absences, retards, évolution, appréciations générales T1/T2/T3).
+- En mode trimestre, seules les périodes **T1, T2, T3** sont affichées (pas de doublons S1/S2).
+
+#### Exemple trimestriel complet
+
+1. Traiter `T1/` → `T1/output.json` (T1 seul).
+2. Traiter `T2/` → `T2/output.json` (T2 seul).
+3. Renseigner `AppreciationGeneraleT1` et `AppreciationGeneraleT2` dans `T3/source.xlsx` si les générales T1/T2 existent déjà sans repasser par l'IA.
+4. Traiter `T3/` → `T3/output.json` (T3 seul + générales T1/T2 lues depuis le xlsx).
+5. Ouvrir `T3/output.json` → **🔗 Périodes liées** → ajouter manuellement `T1/output.json` et `T2/output.json`.
+6. **Édition** puis **Conseil** : vue complète T1 + T2 + T3.
+
+Le même principe s'applique au semestre (`S1/`, `S2/`) avec les colonnes `AppreciationGeneraleS1` / `S2`.
 
 ### Obtention des fichiers csv
 1. **Connexion à Pronote** : Via l'ENT de votre établissement
@@ -251,8 +310,11 @@ Chaque fichier de période (ex. `output_T3.json`) commence par un objet `{"_meta
     "matieres_count": 12,
     "source_directory": "/chemin/vers/votre/dossier/T3",
     "period_links": {
-      "T1": "output_T1.json",
-      "T2": "output_T2.json"
+      "T1": "../T1/output.json",
+      "T2": "../T2/output.json"
+    },
+    "period_link_overrides": {
+      "../T2/output.json": "T2"
     },
     "period_links_excluded": []
   }
@@ -260,7 +322,8 @@ Chaque fichier de période (ex. `output_T3.json`) commence par un objet `{"_meta
 ```
 
 - `current_period` / `period_system` / `period_label` : période et système (semestre/trimestre) du fichier, utilisés pour adapter l'affichage.
-- `period_links` : liens manuels vers les JSON des autres périodes (chemins relatifs au fichier courant). Les fichiers du même dossier sont en plus **auto-découverts**.
+- `period_links` : liens manuels vers les JSON des autres périodes (chemins relatifs ou absolus). Les fichiers `*.json` du **même dossier** sont en plus **auto-découverts**.
+- `period_link_overrides` : période forcée pour un fichier lié lorsque la détection automatique est incorrecte (ex. contenu S2 attribué à T2).
 - `period_links_excluded` : périodes auto-découvertes que l'utilisateur a explicitement retirées.
 
 Les bulletins suivent ensuite ce bloc métadonnées. À l'ouverture, les périodes liées sont chargées et fusionnées **en lecture seule** pour reconstruire la vue multi-périodes, sans jamais modifier les autres fichiers.
@@ -344,4 +407,4 @@ Si ce projet vous aide dans votre travail quotidien et que vous souhaitez souten
 
 *Développé avec ❤️ pour faciliter le travail des équipes éducatives*
 
-**Version** : v0.4 - Historique réparti (un JSON par période + périodes liées) (2026) 
+**Version** : v0.4 - Historique réparti (un JSON par période + périodes liées + source.xlsx trimestre) (2026) 
