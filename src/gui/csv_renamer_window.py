@@ -20,6 +20,7 @@ try:
         rename_csv_files,
     )
     from ..utils.paths import get_documents_dir
+    from . import theme
 except ImportError:
     import sys
 
@@ -32,6 +33,7 @@ except ImportError:
         rename_csv_files,
     )
     from utils.paths import get_documents_dir
+    from gui import theme
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -67,6 +69,7 @@ class CsvRenamerWindow:
         self.root.title("Renommer les fichiers CSV - BGRAPP Pyconseil")
         self.root.geometry("720x520")
         self.root.minsize(520, 360)
+        theme.setup_root_scaling(self.root)
 
         if parent:
             self.root.transient(parent)
@@ -81,12 +84,10 @@ class CsvRenamerWindow:
 
     def _setup_styles(self):
         style = ttk.Style()
-        style.configure("Title.TLabel", font=("Arial", 14, "bold"))
-        style.configure("Info.TLabel", font=("Arial", 10))
-        style.configure("Header.TLabel", font=("Arial", 10, "bold"))
+        theme.apply_theme(style)
 
     def _create_interface(self):
-        main_frame = ttk.Frame(self.root, padding="12")
+        main_frame = ttk.Frame(self.root, padding=theme.PADDING_NORMAL)
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)

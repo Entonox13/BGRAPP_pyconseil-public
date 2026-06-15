@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from gui.main_window import MainWindow
+from gui import theme
 
 
 class TestMainWindow:
@@ -91,7 +92,7 @@ class TestMainWindow:
             # Vérifications
             mock_summary.assert_called_once_with("/test/directory")
             window.create_json_btn.config.assert_called_with(state='normal')
-            window._log_message.assert_called_with("✅ Dossier valide - Traitement possible", "success")
+            window._log_message.assert_called_with(f"{theme.LOG_OK} Dossier valide - Traitement possible", "success")
     
     @patch('gui.main_window.get_processing_summary')
     def test_analyze_directory_invalid(self, mock_summary):
@@ -124,7 +125,7 @@ class TestMainWindow:
             
             # Vérifications
             window.create_json_btn.config.assert_called_with(state='disabled')
-            window._log_message.assert_called_with("❌ Dossier invalide - Vérifiez les fichiers requis", "error")
+            window._log_message.assert_called_with(f"{theme.LOG_ERR} Dossier invalide - Vérifiez les fichiers requis", "error")
     
     @patch('gui.main_window.filedialog.askdirectory')
     def test_select_directory(self, mock_dialog):

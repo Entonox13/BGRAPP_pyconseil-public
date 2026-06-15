@@ -15,12 +15,14 @@ import threading
 try:
     from ..services.ai_config_service import AIConfigService, AIProvider, get_ai_config_service
     from ..services.ai_connection_test_service import get_ai_connection_test_service
+    from . import theme
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from services.ai_config_service import AIConfigService, AIProvider, get_ai_config_service
     from services.ai_connection_test_service import get_ai_connection_test_service
+    from gui import theme
 
 
 class ConfigWindow:
@@ -55,6 +57,7 @@ class ConfigWindow:
         self.root = tk.Toplevel() if parent_window else tk.Tk()
         self.root.title("Configuration IA - BGRAPP Pyconseil")
         self.root.geometry("700x600")
+        theme.setup_root_scaling(self.root)
         if parent_window:
             self.root.transient(parent_window.root if hasattr(parent_window, 'root') else parent_window)
             self.root.grab_set()  # Fenêtre modale
@@ -69,12 +72,7 @@ class ConfigWindow:
     def _setup_styles(self):
         """Configure les styles de l'interface"""
         style = ttk.Style()
-        style.configure('Title.TLabel', font=('Arial', 16, 'bold'))
-        style.configure('Subtitle.TLabel', font=('Arial', 12, 'bold'))
-        style.configure('Info.TLabel', font=('Arial', 10))
-        style.configure('Success.TLabel', font=('Arial', 10), foreground='green')
-        style.configure('Error.TLabel', font=('Arial', 10), foreground='red')
-        style.configure('Warning.TLabel', font=('Arial', 10), foreground='orange')
+        theme.apply_theme(style)
     
     def _init_variables(self):
         """Initialise les variables tkinter"""
@@ -91,7 +89,7 @@ class ConfigWindow:
     def _create_interface(self):
         """Crée l'interface de configuration"""
         # Frame principal avec scrollbar
-        main_frame = ttk.Frame(self.root, padding="15")
+        main_frame = ttk.Frame(self.root, padding=theme.PADDING_NORMAL)
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         self.root.columnconfigure(0, weight=1)
@@ -101,7 +99,7 @@ class ConfigWindow:
         # Titre
         title_label = ttk.Label(
             main_frame,
-            text="🤖 Configuration IA",
+            text=theme.TITLE_CONFIG_IA,
             style='Title.TLabel'
         )
         title_label.grid(row=0, column=0, pady=(0, 20), sticky=tk.W)
@@ -158,7 +156,7 @@ class ConfigWindow:
 
         show_hide_btn = ttk.Button(
             frame,
-            text="👁 Afficher",
+            text=theme.BTN_SHOW,
             command=lambda p=provider: self._toggle_api_key_visibility(p)
         )
         show_hide_btn.grid(row=3, column=0, sticky=tk.W, pady=(0, 15))
@@ -188,7 +186,7 @@ class ConfigWindow:
         # Bouton de rafraîchissement de la liste des modèles via l'API
         self.refresh_buttons[provider] = ttk.Button(
             frame,
-            text="🔄 Rafraîchir les modèles",
+            text=theme.BTN_REFRESH_MODELS,
             command=lambda p=provider: self._refresh_models(p)
         )
         self.refresh_buttons[provider].grid(row=current_row, column=0, sticky=tk.W, pady=(5, 15))
@@ -218,12 +216,12 @@ class ConfigWindow:
 
         btn = self.refresh_buttons.get(provider)
         if btn:
-            btn.config(state='disabled', text="🔄 Récupération...")
+            btn.config(state='disabled', text=theme.BTN_REFRESHING)
 
         self.status_text.config(state='normal')
         self.status_text.insert(
             tk.END,
-            f"🔄 Récupération des modèles {self._get_provider_display_name(provider)}...\n"
+            f"{theme.LOG_INFO} Récupération des modèles {self._get_provider_display_name(provider)}...\n"
         )
         self.status_text.config(state='disabled')
         self.status_text.see(tk.END)
@@ -232,7 +230,7 @@ class ConfigWindow:
             try:
                 result = self.test_service.fetch_models(provider, api_key)
             except Exception as e:
-                result = {"success": False, "models": [], "message": f"❌ Erreur: {e}"}
+                result = {"success": False, "models": [], "message": f"{theme.LOG_ERR} Erreur: {e}"}
             self.root.after(0, lambda: self._on_models_fetched(provider, result))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -241,7 +239,7 @@ class ConfigWindow:
         """Met à jour le combo des modèles après récupération via l'API."""
         btn = self.refresh_buttons.get(provider)
         if btn:
-            btn.config(state='normal', text="🔄 Rafraîchir les modèles")
+            btn.config(state='normal', text=theme.BTN_REFRESH_MODELS)
 
         self.status_text.config(state='normal')
 
@@ -257,7 +255,7 @@ class ConfigWindow:
                     self.model_vars[provider][role].set(models[0])
             self.status_text.insert(
                 tk.END,
-                f"✅ {result.get('message', f'{len(models)} modèles récupérés')}\n",
+                f"{theme.LOG_OK} {result.get('message', f'{len(models)} modèles récupérés')}\n",
                 "success"
             )
             self.status_text.tag_config("success", foreground="green")
@@ -265,7 +263,7 @@ class ConfigWindow:
             self.status_text.see(tk.END)
         else:
             message = result.get("message", "Impossible de récupérer les modèles")
-            self.status_text.insert(tk.END, f"❌ {message}\n", "error")
+            self.status_text.insert(tk.END, f"{theme.LOG_ERR} {message}\n", "error")
             self.status_text.tag_config("error", foreground="red")
             self.status_text.config(state='disabled')
             self.status_text.see(tk.END)
@@ -282,7 +280,7 @@ class ConfigWindow:
         
         ttk.Label(
             status_frame,
-            text="📊 État de la configuration",
+            text=theme.SECTION_CONFIG_STATUS,
             style='Subtitle.TLabel'
         ).grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
         
@@ -292,7 +290,7 @@ class ConfigWindow:
             height=4,
             width=70,
             state='disabled',
-            font=('Consolas', 9),
+            font=theme.font_mono(),
             wrap=tk.WORD
         )
         self.status_text.grid(row=1, column=0, sticky=(tk.W, tk.E))
@@ -311,7 +309,7 @@ class ConfigWindow:
         # Bouton Test de connexion
         self.test_button = ttk.Button(
             button_frame,
-            text="🔧 Tester la connexion",
+            text=theme.BTN_TEST_CONNECTION,
             command=self._test_connection
         )
         self.test_button.grid(row=0, column=0, padx=(0, 10))
@@ -319,7 +317,7 @@ class ConfigWindow:
         # Bouton Sauvegarder
         save_btn = ttk.Button(
             button_frame,
-            text="💾 Sauvegarder",
+            text=theme.BTN_SAVE,
             command=self._save_configuration
         )
         save_btn.grid(row=0, column=1, padx=(0, 10))
@@ -327,7 +325,7 @@ class ConfigWindow:
         # Bouton Annuler
         cancel_btn = ttk.Button(
             button_frame,
-            text="❌ Annuler",
+            text=theme.BTN_CANCEL,
             command=self._on_closing
         )
         cancel_btn.grid(row=0, column=2, padx=(0, 20))
@@ -335,7 +333,7 @@ class ConfigWindow:
         # Bouton Aide
         help_btn = ttk.Button(
             button_frame,
-            text="❓ Aide",
+            text=theme.BTN_HELP,
             command=self._show_help
         )
         help_btn.grid(row=0, column=3)
@@ -398,28 +396,28 @@ class ConfigWindow:
         
         # État général
         if validation['valid']:
-            self.status_text.insert(tk.END, "✅ Configuration valide\n", "success")
+            self.status_text.insert(tk.END, f"{theme.LOG_OK} Configuration valide\n", "success")
         else:
-            self.status_text.insert(tk.END, "❌ Configuration invalide\n", "error")
+            self.status_text.insert(tk.END, f"{theme.LOG_ERR} Configuration invalide\n", "error")
         
         # Fournisseurs avec clés
         providers_with_keys = validation['providers_with_keys']
         if providers_with_keys:
             names = [self._get_provider_display_name(p) for p in providers_with_keys]
-            self.status_text.insert(tk.END, f"🔑 Clés configurées: {', '.join(names)}\n")
+            self.status_text.insert(tk.END, f"Clés configurées: {', '.join(names)}\n")
         
         # Fournisseur actif
         enabled_provider = validation['enabled_provider']
         if enabled_provider:
             name = self._get_provider_display_name(enabled_provider)
-            self.status_text.insert(tk.END, f"🎯 Fournisseur actif: {name}\n")
+            self.status_text.insert(tk.END, f"Fournisseur actif: {name}\n")
         
         # Erreurs et avertissements
         for error in validation['errors']:
-            self.status_text.insert(tk.END, f"❌ Erreur: {error}\n", "error")
+            self.status_text.insert(tk.END, f"{theme.LOG_ERR} Erreur: {error}\n", "error")
         
         for warning in validation['warnings']:
-            self.status_text.insert(tk.END, f"⚠️ Avertissement: {warning}\n", "warning")
+            self.status_text.insert(tk.END, f"{theme.LOG_WARN} Avertissement: {warning}\n", "warning")
         
         # Configuration des tags de couleur
         self.status_text.tag_config("success", foreground="green")
@@ -484,11 +482,11 @@ class ConfigWindow:
         
         # Désactiver le bouton et changer le texte
         if self.test_button:
-            self.test_button.config(state='disabled', text="🔄 Test en cours...")
+            self.test_button.config(state='disabled', text=theme.BTN_TEST_IN_PROGRESS)
         
         # Mettre à jour le statut
         self.status_text.config(state='normal')
-        self.status_text.insert(tk.END, f"🔄 Test de connexion {self._get_provider_display_name(provider)} en cours...\n")
+        self.status_text.insert(tk.END, f"{theme.LOG_INFO} Test de connexion {self._get_provider_display_name(provider)} en cours...\n")
         self.status_text.config(state='disabled')
         self.status_text.see(tk.END)
         
@@ -511,7 +509,7 @@ class ConfigWindow:
         
         # Réactiver le bouton
         if self.test_button:
-            self.test_button.config(state='normal', text="🔧 Tester la connexion")
+            self.test_button.config(state='normal', text=theme.BTN_TEST_CONNECTION)
         
         # Mettre à jour le statut
         self.status_text.config(state='normal')
@@ -522,7 +520,7 @@ class ConfigWindow:
                 usage = result.details['usage']
                 if isinstance(usage, dict):
                     if 'total_tokens' in usage:
-                        self.status_text.insert(tk.END, f"   📊 Tokens: {usage.get('total_tokens', 0)} total\n", "success")
+                        self.status_text.insert(tk.END, f"   Tokens: {usage.get('total_tokens', 0)} total\n", "success")
         else:
             self.status_text.insert(tk.END, f"{result.message}\n", "error")
             
@@ -531,11 +529,11 @@ class ConfigWindow:
             if error_type == 'client_missing':
                 requirements = self.test_service.get_connection_requirements(AIProvider(self.active_provider_var.get()))
                 if requirements:
-                    self.status_text.insert(tk.END, f"   💡 Commande: {requirements.get('install_command', '')}\n", "warning")
+                    self.status_text.insert(tk.END, f"   Commande: {requirements.get('install_command', '')}\n", "warning")
             elif error_type == 'invalid_key':
                 requirements = self.test_service.get_connection_requirements(AIProvider(self.active_provider_var.get()))
                 if requirements:
-                    self.status_text.insert(tk.END, f"   💡 Obtenez votre clé: {requirements.get('api_key_url', '')}\n", "warning")
+                    self.status_text.insert(tk.END, f"   Obtenez votre clé: {requirements.get('api_key_url', '')}\n", "warning")
         
         self.status_text.config(state='disabled')
         self.status_text.see(tk.END)
@@ -552,11 +550,11 @@ class ConfigWindow:
         
         # Réactiver le bouton
         if self.test_button:
-            self.test_button.config(state='normal', text="🔧 Tester la connexion")
+            self.test_button.config(state='normal', text=theme.BTN_TEST_CONNECTION)
         
         # Mettre à jour le statut
         self.status_text.config(state='normal')
-        self.status_text.insert(tk.END, f"❌ Erreur lors du test: {error_message}\n", "error")
+        self.status_text.insert(tk.END, f"{theme.LOG_ERR} Erreur lors du test: {error_message}\n", "error")
         self.status_text.config(state='disabled')
         self.status_text.see(tk.END)
         
@@ -608,28 +606,28 @@ class ConfigWindow:
     def _show_help(self):
         """Affiche l'aide de configuration"""
         help_text = """
-🤖 Aide - Configuration IA
+Aide - Configuration IA
 
-📋 Configuration des clés API:
+Configuration des clés API:
 • OpenAI: https://platform.openai.com/api-keys
 • Anthropic (Claude): https://console.anthropic.com/settings/keys
 • Google (Gemini): https://aistudio.google.com/app/apikey
 
-🎯 Sélection des modèles (deux par fournisseur):
+Sélection des modèles (deux par fournisseur):
 • Modèle de prétraitement : mise en forme HTML des appréciations par matière
 • Modèle d'appréciation : rédaction de l'appréciation générale
 • Astuce : un modèle économique pour le prétraitement, un meilleur pour l'appréciation
 • Les modèles "mini"/"flash"/"haiku" sont généralement plus économiques
-• Le bouton "🔄 Rafraîchir les modèles" récupère la liste à jour via l'API
+• Le bouton "Rafraîchir les modèles" récupère la liste à jour via l'API
 
-⚙️ Configuration:
+Configuration:
 1. Choisissez l'onglet du fournisseur souhaité
 2. Renseignez votre clé API et sélectionnez les deux modèles
 3. Cochez le fournisseur à utiliser (fournisseur actif)
 4. Testez la connexion
 5. Sauvegardez
 
-🔒 Sécurité:
+Sécurité:
 • Les clés API sont stockées localement dans le fichier .env
 • Elles ne sont jamais partagées ni transmises ailleurs
 • Ne committez jamais votre fichier .env dans git
@@ -654,7 +652,7 @@ class ConfigWindow:
         help_text_widget = tk.Text(
             text_frame,
             wrap=tk.WORD,
-            font=('Arial', 10),
+            font=theme.font_body(),
             state='normal'
         )
         help_text_widget.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))

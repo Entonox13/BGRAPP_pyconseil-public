@@ -31,6 +31,7 @@ try:
     )
     from .period_links_panel import open_period_links_dialog
     from ..utils.paths import get_documents_dir
+    from . import theme
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -52,6 +53,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from period_links_panel import open_period_links_dialog
     from utils.paths import get_documents_dir
+    from gui import theme
 
 
 class ConseilWindow:
@@ -79,6 +81,7 @@ class ConseilWindow:
         # Configuration pour écran 1080p - approche plus robuste
         self.is_fullscreen = False
         self._setup_fullscreen_window()
+        theme.setup_root_scaling(self.root)
         
         # Raccourcis pour quitter le plein écran (Echap)
         self.root.bind('<Escape>', lambda e: self._toggle_fullscreen())
@@ -157,11 +160,7 @@ class ConseilWindow:
     def _setup_styles(self):
         """Configure les styles de l'interface"""
         style = ttk.Style()
-        style.configure('Title.TLabel', font=('Arial', 18, 'bold'))
-        style.configure('Subtitle.TLabel', font=('Arial', 14, 'bold'))
-        style.configure('Info.TLabel', font=('Arial', 11))
-        style.configure('Header.TLabel', font=('Arial', 11, 'bold'))
-        style.configure('Large.TLabel', font=('Arial', 12))
+        theme.apply_theme(style, conseil=True)
     
     def _insert_html_text(self, text_widget, html_content):
         """
@@ -174,10 +173,22 @@ class ConseilWindow:
         if not html_content:
             return
         
-        # Configuration des tags pour les styles (tailles augmentées)
-        text_widget.tag_configure("positif", foreground="green", font=('Arial', 11, 'bold'))
-        text_widget.tag_configure("negatif", foreground="red", font=('Arial', 11, 'bold'))
-        text_widget.tag_configure("normal", foreground="black", font=('Arial', 11))
+        # Configuration des tags pour les styles
+        text_widget.tag_configure(
+            "positif",
+            foreground=theme.html_tag_foreground("positif"),
+            font=theme.font_html_tag("positif"),
+        )
+        text_widget.tag_configure(
+            "negatif",
+            foreground=theme.html_tag_foreground("negatif"),
+            font=theme.font_html_tag("negatif"),
+        )
+        text_widget.tag_configure(
+            "normal",
+            foreground=theme.html_tag_foreground("normal"),
+            font=theme.font_html_tag("normal"),
+        )
         
         # Pattern pour extraire les balises span avec classes
         span_pattern = r'<span class="([^"]+)">([^<]+)</span>'
@@ -211,7 +222,7 @@ class ConseilWindow:
     def _create_interface(self):
         """Crée l'interface optimisée pour 1080p"""
         # Frame principal avec padding réduit pour maximiser l'espace
-        main_frame = ttk.Frame(self.root, padding="5")
+        main_frame = ttk.Frame(self.root, padding=theme.PADDING_COMPACT)
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         self.root.columnconfigure(0, weight=1)
@@ -224,7 +235,7 @@ class ConseilWindow:
         # Zone principale - layout horizontal optimisé
         content_frame = ttk.Frame(main_frame)
         content_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-        content_frame.columnconfigure(1, weight=3)  # Zone conseil plus large
+        content_frame.columnconfigure(1, weight=4)  # Zone conseil plus large
         content_frame.rowconfigure(0, weight=1)
         
         self._create_navigation_panel(content_frame, 0, 0)
@@ -317,14 +328,14 @@ class ConseilWindow:
         toolbar_frame.columnconfigure(3, weight=1)
         
         # Titre plus visible
-        ttk.Label(toolbar_frame, text="🏛️ Conseil de Classe - Vue Plein Écran", style='Title.TLabel').grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(toolbar_frame, text=theme.TITLE_CONSEIL, style='Title.TLabel').grid(row=0, column=0, sticky=tk.W)
         
         # Bouton charger
-        self.load_btn = ttk.Button(toolbar_frame, text="📂 Charger JSON", command=self._load_json_file)
+        self.load_btn = ttk.Button(toolbar_frame, text=theme.BTN_LOAD_JSON, command=self._load_json_file)
         self.load_btn.grid(row=0, column=1, padx=(20, 10))
 
         # Bouton périodes liées (autres JSON)
-        self.period_links_btn = ttk.Button(toolbar_frame, text="🔗 Périodes liées", command=self._open_period_links)
+        self.period_links_btn = ttk.Button(toolbar_frame, text=theme.BTN_PERIOD_LINKS, command=self._open_period_links)
         self.period_links_btn.grid(row=0, column=6, padx=(10, 10))
         
         # Sélecteur manuel de période (trimestre/semestre)
@@ -339,7 +350,7 @@ class ConseilWindow:
         help_label.grid(row=0, column=4, sticky=tk.E, padx=(0, 10))
         
         # Bouton retour
-        self.back_btn = ttk.Button(toolbar_frame, text="◀ Retour", command=self._return_to_main)
+        self.back_btn = ttk.Button(toolbar_frame, text=theme.BTN_BACK, command=self._return_to_main)
         self.back_btn.grid(row=0, column=5, padx=(10, 0))
 
     def _build_period_selector(self, parent, column):
@@ -398,21 +409,21 @@ class ConseilWindow:
         nav_frame.rowconfigure(1, weight=1)
         
         # Configuration de largeur fixe mais optimisée
-        nav_frame.configure(width=250)
+        nav_frame.configure(width=theme.NAV_PANEL_WIDTH)
         
         # Boutons navigation
         nav_buttons_frame = ttk.Frame(nav_frame)
         nav_buttons_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         nav_buttons_frame.columnconfigure(1, weight=1)
         
-        self.prev_btn = ttk.Button(nav_buttons_frame, text="◀ Précédent", command=self._previous_bulletin, state='disabled')
+        self.prev_btn = ttk.Button(nav_buttons_frame, text=theme.BTN_PREV, command=self._previous_bulletin, state='disabled')
         self.prev_btn.grid(row=0, column=0, sticky=tk.W)
         
-        self.next_btn = ttk.Button(nav_buttons_frame, text="Suivant ▶", command=self._next_bulletin, state='disabled')
+        self.next_btn = ttk.Button(nav_buttons_frame, text=theme.BTN_NEXT, command=self._next_bulletin, state='disabled')
         self.next_btn.grid(row=0, column=2, sticky=tk.E)
         
         # Liste bulletins avec plus de hauteur
-        self.bulletin_list = tk.Listbox(nav_frame, height=25, font=('Arial', 10))
+        self.bulletin_list = tk.Listbox(nav_frame, height=25, font=theme.font_body())
         self.bulletin_list.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.bulletin_list.bind('<<ListboxSelect>>', self._on_bulletin_select)
         
@@ -426,7 +437,8 @@ class ConseilWindow:
         conseil_frame = ttk.LabelFrame(parent, text="Vue Conseil de Classe", padding="5")
         conseil_frame.grid(row=row, column=column, sticky=(tk.W, tk.E, tk.N, tk.S))
         conseil_frame.columnconfigure(0, weight=1)
-        conseil_frame.rowconfigure(1, weight=1)
+        conseil_frame.rowconfigure(1, weight=3)
+        conseil_frame.rowconfigure(2, weight=1)
         
         # Informations élève en haut (plus compactes)
         self._create_student_info(conseil_frame, 0)
@@ -476,7 +488,7 @@ class ConseilWindow:
     def _create_synthesis_tab(self):
         """Crée l'onglet vue synthèse"""
         synthesis_frame = ttk.Frame(self.overview_notebook, padding="5")
-        self.overview_notebook.add(synthesis_frame, text="📊 Synthèse")
+        self.overview_notebook.add(synthesis_frame, text=theme.TAB_SYNTHESIS)
         synthesis_frame.columnconfigure(0, weight=1)
         synthesis_frame.rowconfigure(0, weight=1)
         
@@ -499,13 +511,13 @@ class ConseilWindow:
         
         columns = ['matiere']
         headings = {'matiere': 'Matière'}
-        widths = {'matiere': 200}
+        widths = {'matiere': 240}
         
         for code in self.period_codes:
             for prefix, label, width in (
-                ('moy', 'Moy.', 90),
-                ('abs', 'Abs.', 80),
-                ('ret', 'Ret.', 70),
+                ('moy', 'Moy.', 108),
+                ('abs', 'Abs.', 96),
+                ('ret', 'Ret.', 84),
             ):
                 col = f'{prefix}_{code.lower()}'
                 columns.append(col)
@@ -516,50 +528,67 @@ class ConseilWindow:
         if len(self.period_codes) >= 2:
             columns.append('evolution')
             headings['evolution'] = 'Évolution'
-            widths['evolution'] = 120
+            widths['evolution'] = 144
         
         self.synthesis_tree_columns = tuple(columns)
         self.synthesis_tree.configure(columns=self.synthesis_tree_columns)
+        stretch_cols = {'matiere'}
+        if 'evolution' in columns:
+            stretch_cols.add('evolution')
         for col in columns:
             self.synthesis_tree.heading(col, text=headings[col])
-            self.synthesis_tree.column(col, width=widths[col])
+            self.synthesis_tree.column(col, width=widths[col], stretch=col in stretch_cols)
     
     def _create_detailed_tab(self):
         """Crée l'onglet vue détaillée optimisé pour les appréciations"""
         detailed_frame = ttk.Frame(self.overview_notebook, padding="5")
-        self.overview_notebook.add(detailed_frame, text="📋 Détails des Appréciations")
+        self.overview_notebook.add(detailed_frame, text=theme.TAB_DETAILS)
         detailed_frame.columnconfigure(0, weight=1)
         detailed_frame.rowconfigure(0, weight=1)
         
         # Créer un canvas avec scrollbar pour la vue détaillée
-        canvas = tk.Canvas(detailed_frame)
-        scrollbar = ttk.Scrollbar(detailed_frame, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = ttk.Frame(canvas)
+        self.detailed_canvas = tk.Canvas(detailed_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(detailed_frame, orient="vertical", command=self.detailed_canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.detailed_canvas)
         
         self.scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.detailed_canvas.configure(scrollregion=self.detailed_canvas.bbox("all"))
         )
+        
+        self.detailed_canvas_window = self.detailed_canvas.create_window(
+            (0, 0), window=self.scrollable_frame, anchor="nw"
+        )
+        self.detailed_canvas.configure(yscrollcommand=scrollbar.set)
+        self.detailed_canvas.bind("<Configure>", self._sync_detailed_canvas_width)
         
         # Configuration pour utiliser tout l'espace disponible
         self.scrollable_frame.columnconfigure(0, weight=1)
         
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.detailed_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
         # Binding pour le scroll avec la molette
-        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        self.detailed_canvas.bind(
+            "<MouseWheel>", lambda e: self.detailed_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        )
         
         # Cette zone sera remplie dynamiquement
         self.detailed_widgets = []
     
+    def _sync_detailed_canvas_width(self, event=None):
+        """Adapte la largeur du contenu défilant à celle du canvas."""
+        if not hasattr(self, "detailed_canvas"):
+            return
+        canvas_width = self.detailed_canvas.winfo_width()
+        if canvas_width > 1:
+            self.detailed_canvas.itemconfigure(self.detailed_canvas_window, width=canvas_width)
+    
     def _create_general_appreciation(self, parent, row):
         """Crée la section appréciation générale (une zone par période)."""
         self.general_frame = ttk.LabelFrame(parent, text="Appréciation Générale", padding="3")
-        self.general_frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.general_frame.grid(row=row, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 5))
+        self.general_frame.columnconfigure(0, weight=1)
         
         # Les zones de texte par période sont construites dynamiquement
         self.general_texts: Dict[str, tk.Text] = {}
@@ -579,8 +608,14 @@ class ConseilWindow:
             self.general_widgets.append(label)
             col += 1
             
-            text = tk.Text(self.general_frame, height=5, wrap=tk.WORD, state='disabled', font=('Arial', 10))
-            text.grid(row=0, column=col, sticky=(tk.W, tk.E), pady=2, padx=(0, 10))
+            text = tk.Text(
+                self.general_frame,
+                height=7,
+                wrap=tk.WORD,
+                state='disabled',
+                font=theme.font_body(),
+            )
+            text.grid(row=0, column=col, sticky=(tk.W, tk.E, tk.N, tk.S), pady=2, padx=(0, 10))
             self.general_frame.columnconfigure(col, weight=1)
             self.general_widgets.append(text)
             self.general_texts[code] = text
@@ -730,10 +765,10 @@ class ConseilWindow:
         try:
             diff = float(moyennes[-1]) - float(moyennes[-2])
             if diff > 0:
-                return f"+{diff:.2f} ↗️"
+                return f"+{diff:.2f} \u2191"
             elif diff < 0:
-                return f"{diff:.2f} ↘️"
-            return "= ➡️"
+                return f"{diff:.2f} \u2193"
+            return "= \u2192"
         except (ValueError, TypeError):
             return "-"
     
@@ -750,53 +785,65 @@ class ConseilWindow:
             # Frame pour la matière avec plus d'espace
             matiere_frame = ttk.LabelFrame(self.scrollable_frame, text=appreciation.matiere, padding="8")
             matiere_frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=8, padx=5)
-            matiere_frame.columnconfigure(1, weight=1)
             self.detailed_widgets.append(matiere_frame)
             
-            # Section informations numériques (compacte en haut) par période
+            # Statistiques par période : une colonne par trimestre/semestre
             info_frame = ttk.Frame(matiere_frame)
-            info_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-            current_col = 0
-            
-            for code in self.period_codes:
+            info_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+            for period_idx, code in enumerate(self.period_codes):
+                info_frame.columnconfigure(period_idx, weight=1, uniform="period_stats")
                 periode = appreciation.get_periode(code)
                 moyenne = periode.moyenne if periode else None
                 absence = periode.heures_absence if periode else None
                 retards = periode.retards if periode else None
                 moy_text = f"{moyenne:.2f}" if isinstance(moyenne, (int, float)) else (moyenne or "-")
                 
-                ttk.Label(info_frame, text=f"Moy. {code}:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
-                current_col += 1
-                ttk.Label(info_frame, text=moy_text, style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
-                current_col += 1
-                
-                ttk.Label(info_frame, text=f"Abs. {code}:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
-                current_col += 1
-                ttk.Label(info_frame, text=absence if absence else "-", style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 15))
-                current_col += 1
-                
-                ttk.Label(info_frame, text=f"Ret. {code}:", style='Header.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 5))
-                current_col += 1
-                ttk.Label(info_frame, text=str(retards) if retards is not None else "-", style='Large.TLabel').grid(row=0, column=current_col, sticky=tk.W, padx=(0, 20))
-                current_col += 1
+                period_info = ttk.Frame(info_frame, padding=(0, 0, 4, 0))
+                period_info.grid(row=0, column=period_idx, sticky=(tk.W, tk.E))
+                ttk.Label(period_info, text=code, style='Header.TLabel').grid(
+                    row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 2)
+                )
+                ttk.Label(period_info, text="Moy.:", style='Info.TLabel').grid(row=1, column=0, sticky=tk.W)
+                ttk.Label(period_info, text=moy_text, style='Large.TLabel').grid(row=1, column=1, sticky=tk.W, padx=(4, 0))
+                ttk.Label(period_info, text="Abs.:", style='Info.TLabel').grid(row=2, column=0, sticky=tk.W)
+                ttk.Label(period_info, text=absence if absence else "-", style='Large.TLabel').grid(
+                    row=2, column=1, sticky=tk.W, padx=(4, 0)
+                )
+                ttk.Label(period_info, text="Ret.:", style='Info.TLabel').grid(row=3, column=0, sticky=tk.W)
+                ttk.Label(period_info, text=str(retards) if retards is not None else "-", style='Large.TLabel').grid(
+                    row=3, column=1, sticky=tk.W, padx=(4, 0)
+                )
             
-            # Appréciations par période avec beaucoup plus d'espace
+            # Appréciations par période : colonnes de largeur égale
             appreciations_frame = ttk.Frame(matiere_frame)
-            appreciations_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+            appreciations_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+            matiere_frame.columnconfigure(0, weight=1)
             
-            appr_col = 0
+            periods_with_text = []
             for code in self.period_codes:
                 periode = appreciation.get_periode(code)
                 texte = periode.appreciation if periode else None
-                if not texte:
-                    continue
-                appreciations_frame.columnconfigure(appr_col, weight=1)
-                periode_frame = ttk.LabelFrame(appreciations_frame, text=f"Appréciation {code}", padding="5")
-                periode_frame.grid(row=0, column=appr_col, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+                if texte:
+                    periods_with_text.append((code, texte))
+            
+            for appr_col, (code, texte) in enumerate(periods_with_text):
+                appreciations_frame.columnconfigure(appr_col, weight=1, uniform="period_appr")
+                periode_frame = ttk.LabelFrame(
+                    appreciations_frame, text=f"Appréciation {code}", padding="4"
+                )
+                periode_frame.grid(
+                    row=0, column=appr_col, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(2, 2)
+                )
                 periode_frame.columnconfigure(0, weight=1)
                 periode_frame.rowconfigure(0, weight=1)
                 
-                appr_text = tk.Text(periode_frame, height=4, wrap=tk.WORD, state='disabled', font=('Arial', 11))
+                appr_text = tk.Text(
+                    periode_frame,
+                    height=8,
+                    wrap=tk.WORD,
+                    state='disabled',
+                    font=theme.font_body(),
+                )
                 appr_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
                 
                 appr_scrollbar = ttk.Scrollbar(periode_frame, orient=tk.VERTICAL, command=appr_text.yview)
@@ -809,13 +856,14 @@ class ConseilWindow:
                 appr_text.configure(state='disabled')
                 self.detailed_widgets.append(appr_text)
                 self.detailed_widgets.append(periode_frame)
-                appr_col += 1
             
             # Configuration pour que les appréciations prennent toute la hauteur disponible
             matiere_frame.rowconfigure(1, weight=1)
             appreciations_frame.rowconfigure(0, weight=1)
             
             row += 1
+        
+        self.root.after_idle(self._sync_detailed_canvas_width)
     
     def _update_general_view(self, bulletin):
         """Met à jour la vue appréciation générale (une zone par période)."""
@@ -906,7 +954,7 @@ class ConseilWindow:
                 self._on_closing()
                 
         except Exception as e:
-            print(f"❌ Erreur dans _return_to_main: {e}")
+            print(f"{theme.LOG_ERR} Erreur dans _return_to_main: {e}")
             import traceback
             traceback.print_exc()
     
@@ -919,7 +967,7 @@ class ConseilWindow:
                 self.root.destroy()
                 
         except Exception as e:
-            print(f"❌ Erreur dans _on_closing: {e}")
+            print(f"{theme.LOG_ERR} Erreur dans _on_closing: {e}")
             import traceback
             traceback.print_exc()
     
@@ -930,14 +978,14 @@ class ConseilWindow:
         action_frame.columnconfigure(3, weight=1)
         
         # Boutons d'action plus espacés
-        self.export_btn = ttk.Button(action_frame, text="📤 Exporter", command=self._export_conseil, state='disabled')
+        self.export_btn = ttk.Button(action_frame, text=theme.BTN_EXPORT, command=self._export_conseil, state='disabled')
         self.export_btn.grid(row=0, column=0, padx=(0, 15))
         
-        self.print_btn = ttk.Button(action_frame, text="🖨️ Imprimer", command=self._print_conseil, state='disabled')
+        self.print_btn = ttk.Button(action_frame, text=theme.BTN_PRINT, command=self._print_conseil, state='disabled')
         self.print_btn.grid(row=0, column=1, padx=(0, 15))
         
         # Bouton plein écran
-        self.fullscreen_btn = ttk.Button(action_frame, text="⛶ Basculer plein écran", command=self._toggle_fullscreen)
+        self.fullscreen_btn = ttk.Button(action_frame, text=theme.BTN_FULLSCREEN, command=self._toggle_fullscreen)
         self.fullscreen_btn.grid(row=0, column=2, padx=(0, 15))
         
         # Statut plus visible

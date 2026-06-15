@@ -252,15 +252,19 @@ class TestConseilWindow(unittest.TestCase):
         self.assertTrue(mock_text_widget.tag_configure.called)
         self.assertTrue(mock_text_widget.insert.called)
         
-        # Vérifier que les tags ont été configurés
-        expected_calls = [
-            (('positif',), {'foreground': 'green', 'font': ('Arial', 10, 'bold')}),
-            (('negatif',), {'foreground': 'red', 'font': ('Arial', 10, 'bold')}),
-            (('normal',), {'foreground': 'black'})
-        ]
-        
-        # Au moins un tag doit être configuré
-        self.assertGreaterEqual(mock_text_widget.tag_configure.call_count, 1)
+        # Vérifier que les tags ont été configurés avec les bonnes couleurs
+        tag_calls = {
+            call.args[0]: call.kwargs
+            for call in mock_text_widget.tag_configure.call_args_list
+        }
+        self.assertIn('positif', tag_calls)
+        self.assertIn('negatif', tag_calls)
+        self.assertIn('normal', tag_calls)
+        self.assertEqual(tag_calls['positif']['foreground'], 'green')
+        self.assertEqual(tag_calls['negatif']['foreground'], 'red')
+        self.assertEqual(tag_calls['normal']['foreground'], 'black')
+        self.assertIn('font', tag_calls['positif'])
+        self.assertIn('font', tag_calls['normal'])
     
     def test_html_text_insertion_empty(self):
         """Test de l'insertion de texte HTML vide"""

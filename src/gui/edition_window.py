@@ -32,6 +32,7 @@ try:
     )
     from .period_links_panel import open_period_links_dialog
     from ..utils.paths import get_documents_dir
+    from . import theme
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,6 +55,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from period_links_panel import open_period_links_dialog
     from utils.paths import get_documents_dir
+    from gui import theme
 
 
 class EditionWindow:
@@ -87,6 +89,7 @@ class EditionWindow:
         self.root = tk.Toplevel() if parent_window else tk.Tk()
         self.root.title("BGRAPP Pyconseil - Édition des bulletins")
         self.root.geometry("1000x700")
+        theme.setup_root_scaling(self.root)
         
         self._setup_styles()
         self._create_interface()
@@ -100,14 +103,12 @@ class EditionWindow:
     def _setup_styles(self):
         """Configure les styles de l'interface"""
         style = ttk.Style()
-        style.configure('Title.TLabel', font=('Arial', 16, 'bold'))
-        style.configure('Subtitle.TLabel', font=('Arial', 12, 'bold'))
-        style.configure('Info.TLabel', font=('Arial', 10))
+        theme.apply_theme(style)
     
     def _create_interface(self):
         """Crée l'interface"""
         # Frame principal
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(self.root, padding=theme.PADDING_COMPACT)
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         self.root.columnconfigure(0, weight=1)
@@ -206,9 +207,9 @@ class EditionWindow:
         # Libellés des boutons IA : période du fichier uniquement
         code = self._file_period.value
         if hasattr(self, 'current_generate_btn'):
-            self.current_generate_btn.config(text=f"✨ Générer appréciation {code}")
+            self.current_generate_btn.config(text=f"{theme.BTN_GENERATE} {code}")
         if hasattr(self, 'generate_btn'):
-            self.generate_btn.config(text=f"✨ Génération appréciation générale ({code})")
+            self.generate_btn.config(text=f"{theme.BTN_GENERATE_GENERAL} ({code})")
 
     def _metadata_for_save(self) -> Dict[str, Any]:
         """Prépare le bloc _metadata à écrire en tête du JSON."""
@@ -231,14 +232,14 @@ class EditionWindow:
         toolbar_frame.columnconfigure(3, weight=1)
         
         # Titre
-        ttk.Label(toolbar_frame, text="📝 Édition des bulletins", style='Title.TLabel').grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(toolbar_frame, text=theme.TITLE_EDITION, style='Title.TLabel').grid(row=0, column=0, sticky=tk.W)
         
         # Bouton charger
-        self.load_btn = ttk.Button(toolbar_frame, text="📂 Charger JSON", command=self._load_json_file)
+        self.load_btn = ttk.Button(toolbar_frame, text=theme.BTN_LOAD_JSON, command=self._load_json_file)
         self.load_btn.grid(row=0, column=1, padx=(20, 10))
 
         # Bouton périodes liées (autres JSON)
-        self.period_links_btn = ttk.Button(toolbar_frame, text="🔗 Périodes liées", command=self._open_period_links)
+        self.period_links_btn = ttk.Button(toolbar_frame, text=theme.BTN_PERIOD_LINKS, command=self._open_period_links)
         self.period_links_btn.grid(row=0, column=5, padx=(10, 10))
         
         # Sélecteur manuel de période (trimestre/semestre)
@@ -249,7 +250,7 @@ class EditionWindow:
         self.position_label.grid(row=0, column=3, sticky=tk.E)
         
         # Bouton retour
-        self.back_btn = ttk.Button(toolbar_frame, text="◀ Retour", command=self._return_to_main)
+        self.back_btn = ttk.Button(toolbar_frame, text=theme.BTN_BACK, command=self._return_to_main)
         self.back_btn.grid(row=0, column=4, padx=(10, 0))
 
     def _build_period_selector(self, parent, column):
@@ -312,14 +313,14 @@ class EditionWindow:
         nav_buttons_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         nav_buttons_frame.columnconfigure(1, weight=1)
         
-        self.prev_btn = ttk.Button(nav_buttons_frame, text="◀ Précédent", command=self._previous_bulletin, state='disabled')
+        self.prev_btn = ttk.Button(nav_buttons_frame, text=theme.BTN_PREV, command=self._previous_bulletin, state='disabled')
         self.prev_btn.grid(row=0, column=0, sticky=tk.W)
         
-        self.next_btn = ttk.Button(nav_buttons_frame, text="Suivant ▶", command=self._next_bulletin, state='disabled')
+        self.next_btn = ttk.Button(nav_buttons_frame, text=theme.BTN_NEXT, command=self._next_bulletin, state='disabled')
         self.next_btn.grid(row=0, column=2, sticky=tk.E)
         
         # Liste bulletins
-        self.bulletin_list = tk.Listbox(nav_frame, height=15)
+        self.bulletin_list = tk.Listbox(nav_frame, height=15, font=theme.font_body())
         self.bulletin_list.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.bulletin_list.bind('<<ListboxSelect>>', self._on_bulletin_select)
         
@@ -340,7 +341,7 @@ class EditionWindow:
     def _create_student_tab(self):
         """Onglet informations élève"""
         student_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(student_frame, text="👤 Élève")
+        self.notebook.add(student_frame, text=theme.TAB_STUDENT)
         
         info_frame = ttk.LabelFrame(student_frame, text="Informations", padding="10")
         info_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
@@ -364,7 +365,7 @@ class EditionWindow:
     def _create_subjects_tab(self):
         """Onglet matières"""
         subjects_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(subjects_frame, text="📚 Matières")
+        self.notebook.add(subjects_frame, text=theme.TAB_SUBJECTS)
         subjects_frame.columnconfigure(0, weight=1)
         subjects_frame.rowconfigure(0, weight=1)
         
@@ -399,13 +400,13 @@ class EditionWindow:
         
         columns = ['matiere']
         headings = {'matiere': 'Matière'}
-        widths = {'matiere': 200}
+        widths = {'matiere': 240}
         
         for code in self.period_codes:
             for prefix, label, width in (
-                ('moyenne', 'Moy.', 80),
-                ('absence', 'Abs.', 80),
-                ('retards', 'Ret.', 70),
+                ('moyenne', 'Moy.', 96),
+                ('absence', 'Abs.', 96),
+                ('retards', 'Ret.', 84),
             ):
                 col = f'{prefix}_{code.lower()}'
                 columns.append(col)
@@ -416,7 +417,7 @@ class EditionWindow:
         self.subjects_tree.configure(columns=self.subjects_tree_columns)
         for col in columns:
             self.subjects_tree.heading(col, text=headings[col])
-            self.subjects_tree.column(col, width=widths[col])
+            self.subjects_tree.column(col, width=widths[col], stretch=(col == 'matiere'))
     
     def _build_appreciation_widgets(self):
         """(Re)construit les zones d'appréciation par période (matière sélectionnée)."""
@@ -434,7 +435,14 @@ class EditionWindow:
             self.appreciation_widgets.append(label)
             row += 1
             
-            text = tk.Text(self.appreciation_frame, height=3, width=60, wrap=tk.WORD, state='disabled')
+            text = tk.Text(
+                self.appreciation_frame,
+                height=4,
+                width=60,
+                wrap=tk.WORD,
+                state='disabled',
+                font=theme.font_body(),
+            )
             text.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=2)
             self.appreciation_widgets.append(text)
             self.appreciation_texts[code] = text
@@ -443,7 +451,7 @@ class EditionWindow:
     def _create_general_tab(self):
         """Onglet appréciation générale"""
         general_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(general_frame, text="📋 Appréciation générale")
+        self.notebook.add(general_frame, text=theme.TAB_GENERAL)
         general_frame.columnconfigure(0, weight=1)
         
         # Conteneur des zones par période (construites dynamiquement)
@@ -458,7 +466,7 @@ class EditionWindow:
         
         self.current_preprocess_btn = ttk.Button(
             current_actions_frame, 
-            text="🔄 Prétraiter ce bulletin", 
+            text=theme.BTN_PREPROCESS_BULLETIN, 
             command=self._preprocess_current_bulletin,
             state='disabled'
         )
@@ -466,7 +474,7 @@ class EditionWindow:
         
         self.current_generate_btn = ttk.Button(
             current_actions_frame, 
-            text="✨ Générer appréciation", 
+            text=theme.BTN_GENERATE, 
             command=self._generate_current_general,
             state='disabled'
         )
@@ -487,7 +495,7 @@ class EditionWindow:
             frame.columnconfigure(0, weight=1)
             self.general_widgets.append(frame)
             
-            text = tk.Text(frame, height=6, wrap=tk.WORD)
+            text = tk.Text(frame, height=7, wrap=tk.WORD, font=theme.font_body())
             text.grid(row=0, column=0, sticky=(tk.W, tk.E))
             self.general_texts[code] = text
     
@@ -497,14 +505,14 @@ class EditionWindow:
         action_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
         # Boutons OpenAI
-        self.preprocess_btn = ttk.Button(action_frame, text="🔄 Prétraitement", command=self._preprocess_text, state='disabled')
+        self.preprocess_btn = ttk.Button(action_frame, text=theme.BTN_PREPROCESS, command=self._preprocess_text, state='disabled')
         self.preprocess_btn.grid(row=0, column=0, padx=(0, 10))
         
-        self.generate_btn = ttk.Button(action_frame, text="✨ Génération appréciation générale", command=self._generate_general, state='disabled')
+        self.generate_btn = ttk.Button(action_frame, text=theme.BTN_GENERATE_GENERAL, command=self._generate_general, state='disabled')
         self.generate_btn.grid(row=0, column=1, padx=(0, 10))
         
         # Sauvegarde
-        self.save_btn = ttk.Button(action_frame, text="💾 Sauvegarder", command=self._save_changes, state='disabled')
+        self.save_btn = ttk.Button(action_frame, text=theme.BTN_SAVE, command=self._save_changes, state='disabled')
         self.save_btn.grid(row=0, column=2, padx=(0, 10))
         
         # Statut
@@ -575,7 +583,7 @@ class EditionWindow:
             
             self._update_bulletin_list()
             self._update_display()
-            self._update_status(f"✅ {len(self.bulletins)} bulletins chargés")
+            self._update_status(f"{theme.LOG_OK} {len(self.bulletins)} bulletins chargés")
             
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible de charger le fichier:\n{str(e)}")
@@ -794,7 +802,7 @@ class EditionWindow:
         progress_window.resizable(False, False)
         progress_window.grab_set()
         
-        ttk.Label(progress_window, text="Prétraitement des appréciations", font=('Arial', 12, 'bold')).pack(pady=10)
+        ttk.Label(progress_window, text="Prétraitement des appréciations", font=theme.font_ui(theme.FONT_SIZE_SUBTITLE, bold=True)).pack(pady=10)
         
         progress_var = tk.DoubleVar()
         progress_bar = ttk.Progressbar(progress_window, variable=progress_var, maximum=100)
@@ -883,7 +891,7 @@ class EditionWindow:
         progress_window.resizable(False, False)
         progress_window.grab_set()
         
-        ttk.Label(progress_window, text=f"Génération des appréciations générales ({self._file_period.value})", font=('Arial', 12, 'bold')).pack(pady=10)
+        ttk.Label(progress_window, text=f"Génération des appréciations générales ({self._file_period.value})", font=theme.font_ui(theme.FONT_SIZE_SUBTITLE, bold=True)).pack(pady=10)
         
         progress_var = tk.DoubleVar()
         progress_bar = ttk.Progressbar(progress_window, variable=progress_var, maximum=100)
@@ -976,7 +984,7 @@ class EditionWindow:
         progress_window.grab_set()
         
         ttk.Label(progress_window, text=f"Prétraitement de {bulletin.eleve.nom} {bulletin.eleve.prenom}", 
-                 font=('Arial', 10, 'bold')).pack(pady=10)
+                 font=theme.font_body(bold=True)).pack(pady=10)
         
         progress_bar = ttk.Progressbar(progress_window, mode='indeterminate')
         progress_bar.pack(pady=10, padx=20, fill=tk.X)
@@ -1076,7 +1084,7 @@ class EditionWindow:
         progress_window.grab_set()
         
         ttk.Label(progress_window, text=f"Génération pour {bulletin.eleve.nom} {bulletin.eleve.prenom}", 
-                 font=('Arial', 10, 'bold')).pack(pady=10)
+                 font=theme.font_body(bold=True)).pack(pady=10)
         
         progress_bar = ttk.Progressbar(progress_window, mode='indeterminate')
         progress_bar.pack(pady=10, padx=20, fill=tk.X)
@@ -1140,7 +1148,7 @@ class EditionWindow:
                 metadata=self._metadata_for_save(),
             )
             
-            self._update_status("✅ Modifications sauvegardées")
+            self._update_status(f"{theme.LOG_OK} Modifications sauvegardées")
             
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible de sauvegarder:\n{str(e)}")

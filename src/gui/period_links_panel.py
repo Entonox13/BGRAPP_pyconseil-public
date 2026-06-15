@@ -29,6 +29,7 @@ try:
     )
     from ..utils.semester import Period, PERIOD_CODES
     from ..utils.paths import get_documents_dir
+    from . import theme
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -45,6 +46,7 @@ except ImportError:
     )
     from utils.semester import Period, PERIOD_CODES
     from utils.paths import get_documents_dir
+    from gui import theme
 
 
 class PeriodLinksDialog:
@@ -61,19 +63,22 @@ class PeriodLinksDialog:
         self.metadata, _data = read_payload(json_path)
 
         self.root = tk.Toplevel(parent) if parent else tk.Toplevel()
-        self.root.title("🔗 Périodes liées")
+        self.root.title(theme.DIALOG_PERIOD_LINKS_TITLE)
         self.root.geometry("700x400")
+        theme.setup_root_scaling(self.root)
         try:
             self.root.transient(parent)
             self.root.grab_set()
         except Exception:
             pass
 
+        style = ttk.Style()
+        theme.apply_theme(style)
         self._create_interface()
         self._refresh()
 
     def _create_interface(self):
-        frame = ttk.Frame(self.root, padding="10")
+        frame = ttk.Frame(self.root, padding=theme.PADDING_COMPACT)
         frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
@@ -87,13 +92,13 @@ class PeriodLinksDialog:
         ttk.Label(
             frame,
             text=f"Période courante : {current_label}",
-            font=('Arial', 11, 'bold'),
+            font=theme.font_ui(theme.FONT_SIZE_HEADER, bold=True),
         ).grid(row=0, column=0, sticky=tk.W, pady=(0, 4))
 
         ttk.Label(
             frame,
             text="Fichiers JSON des autres périodes pris en compte pour la vue d'ensemble :",
-            font=('Arial', 10),
+            font=theme.font_body(),
         ).grid(row=1, column=0, sticky=tk.W, pady=(0, 6))
 
         # Tableau des liens
@@ -120,20 +125,20 @@ class PeriodLinksDialog:
         buttons_frame = ttk.Frame(frame)
         buttons_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
 
-        ttk.Button(buttons_frame, text="➕ Ajouter un JSON", command=self._add_link).grid(
+        ttk.Button(buttons_frame, text=theme.BTN_ADD_JSON, command=self._add_link).grid(
             row=0, column=0, padx=(0, 8)
         )
-        ttk.Button(buttons_frame, text="✏️ Modifier la période", command=self._edit_link_period).grid(
+        ttk.Button(buttons_frame, text=theme.BTN_EDIT_PERIOD, command=self._edit_link_period).grid(
             row=0, column=1, padx=(0, 8)
         )
-        ttk.Button(buttons_frame, text="➖ Retirer la sélection", command=self._remove_link).grid(
+        ttk.Button(buttons_frame, text=theme.BTN_REMOVE_SELECTION, command=self._remove_link).grid(
             row=0, column=2, padx=(0, 8)
         )
         ttk.Button(buttons_frame, text="Fermer", command=self._close).grid(
             row=0, column=3, padx=(0, 0)
         )
 
-        self.info_label = ttk.Label(frame, text="", font=('Arial', 9), foreground='gray')
+        self.info_label = ttk.Label(frame, text="", font=theme.font_body(), foreground='gray')
         self.info_label.grid(row=4, column=0, sticky=tk.W, pady=(8, 0))
 
     def _link_source_label(self, code: str, path: str, manual_codes: set) -> str:
@@ -209,13 +214,13 @@ class PeriodLinksDialog:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        frame = ttk.Frame(dlg, padding="12")
+        frame = ttk.Frame(dlg, padding=theme.PADDING_NORMAL)
         frame.grid(row=0, column=0)
 
         ttk.Label(
             frame,
             text=os.path.basename(file_path),
-            font=('Arial', 10, 'bold'),
+            font=theme.font_body(bold=True),
         ).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 8))
 
         hint_parts = []
@@ -227,7 +232,7 @@ class PeriodLinksDialog:
             ttk.Label(
                 frame,
                 text="Détection — " + " ; ".join(hint_parts),
-                font=('Arial', 9),
+                font=theme.font_body(),
                 foreground='gray',
             ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 8))
 

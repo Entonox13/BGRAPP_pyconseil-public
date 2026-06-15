@@ -33,6 +33,7 @@ try:
         periods_for_system,
     )
     from ..utils.paths import get_documents_dir
+    from . import theme
 except ImportError:
     # Fallback pour les tests et l'exécution directe
     import sys
@@ -58,6 +59,7 @@ except ImportError:
         periods_for_system,
     )
     from utils.paths import get_documents_dir
+    from gui import theme
 
 
 class MainWindow:
@@ -70,6 +72,7 @@ class MainWindow:
         self.root = tk.Tk()
         self.root.title("BGRAPP Pyconseil - Outil d'aide aux conseils de classe")
         self.root.geometry("800x600")
+        theme.setup_root_scaling(self.root)
         
         # Variables d'état
         self.selected_directory: Optional[str] = None
@@ -91,19 +94,13 @@ class MainWindow:
     def _setup_styles(self):
         """Configure les styles de l'interface"""
         style = ttk.Style()
-        
-        # Configuration des couleurs et polices
-        style.configure('Title.TLabel', font=('Arial', 16, 'bold'))
-        style.configure('Subtitle.TLabel', font=('Arial', 12, 'bold'))
-        style.configure('Info.TLabel', font=('Arial', 10))
-        style.configure('Success.TLabel', font=('Arial', 10), foreground='green')
-        style.configure('Error.TLabel', font=('Arial', 10), foreground='red')
+        theme.apply_theme(style)
     
     def _create_interface(self):
         """Crée tous les éléments de l'interface"""
         
         # Frame principal avec padding
-        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame = ttk.Frame(self.root, padding=theme.PADDING_LARGE)
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Configuration des poids pour le redimensionnement
@@ -114,7 +111,7 @@ class MainWindow:
         # Titre principal
         title_label = ttk.Label(
             main_frame, 
-            text="🎓 BGRAPP Pyconseil", 
+            text=theme.TITLE_APP, 
             style='Title.TLabel'
         )
         title_label.grid(row=0, column=0, pady=(0, 5), sticky=tk.W)
@@ -156,7 +153,7 @@ class MainWindow:
         # Titre de section
         section_label = ttk.Label(
             parent, 
-            text="📁 Sélection du dossier de travail", 
+            text=theme.SECTION_DIRECTORY, 
             style='Subtitle.TLabel'
         )
         section_label.grid(row=row, column=0, pady=(10, 5), sticky=tk.W)
@@ -202,7 +199,7 @@ class MainWindow:
             height=4,
             width=80,
             state='disabled',
-            font=('Consolas', 9),
+            font=theme.font_mono(),
             wrap=tk.WORD
         )
         self.dir_info.grid(row=0, column=0, sticky=(tk.W, tk.E))
@@ -218,7 +215,7 @@ class MainWindow:
         # Titre de section
         section_label = ttk.Label(
             parent, 
-            text="⚙️ Traitement des données", 
+            text=theme.SECTION_PROCESSING, 
             style='Subtitle.TLabel'
         )
         section_label.grid(row=row, column=0, pady=(10, 5), sticky=tk.W)
@@ -230,7 +227,7 @@ class MainWindow:
         # Bouton de création JSON
         self.create_json_btn = ttk.Button(
             process_frame,
-            text="🔄 Créer fichier JSON",
+            text=theme.BTN_CREATE_JSON,
             command=self._create_json,
             state='disabled'
         )
@@ -239,7 +236,7 @@ class MainWindow:
         # Bouton de chargement JSON existant
         self.load_json_btn = ttk.Button(
             process_frame,
-            text="📂 Charger JSON existant",
+            text=theme.BTN_LOAD_JSON_EXISTING,
             command=self._load_existing_json
         )
         self.load_json_btn.grid(row=0, column=1, padx=(0, 10))
@@ -247,7 +244,7 @@ class MainWindow:
         # Bouton de gestion des periodes liees (autres JSON de periodes)
         self.period_links_btn = ttk.Button(
             process_frame,
-            text="🔗 Périodes liées",
+            text=theme.BTN_PERIOD_LINKS,
             command=self._open_period_links,
             state='disabled'
         )
@@ -268,7 +265,7 @@ class MainWindow:
 
         ttk.Label(
             period_frame,
-            text="🗓️ Période active :",
+            text=theme.LABEL_PERIOD_ACTIVE,
             style='Subtitle.TLabel'
         ).grid(row=0, column=0, padx=(0, 8))
 
@@ -294,7 +291,7 @@ class MainWindow:
         # Titre de section
         section_label = ttk.Label(
             parent, 
-            text="🧭 Navigation", 
+            text=theme.SECTION_NAVIGATION, 
             style='Subtitle.TLabel'
         )
         section_label.grid(row=row, column=0, pady=(20, 5), sticky=tk.W)
@@ -306,7 +303,7 @@ class MainWindow:
         # Bouton fenêtre édition
         self.edit_btn = ttk.Button(
             nav_frame,
-            text="📝 Fenêtre d'édition",
+            text=theme.BTN_EDIT_WINDOW,
             command=self._open_edition_window,
             state='disabled'
         )
@@ -315,7 +312,7 @@ class MainWindow:
         # Bouton fenêtre conseil
         self.conseil_btn = ttk.Button(
             nav_frame,
-            text="🎯 Fenêtre conseil",
+            text=theme.BTN_CONSEIL_WINDOW,
             command=self._open_conseil_window,
             state='disabled'
         )
@@ -324,7 +321,7 @@ class MainWindow:
         # Bouton configuration IA
         config_btn = ttk.Button(
             nav_frame,
-            text="🤖 Configuration IA",
+            text=theme.BTN_CONFIG_IA,
             command=self._open_config_window
         )
         config_btn.grid(row=0, column=2, padx=(0, 10))
@@ -332,7 +329,7 @@ class MainWindow:
         # Bouton quitter
         quit_btn = ttk.Button(
             nav_frame,
-            text="❌ Quitter",
+            text=theme.BTN_QUIT,
             command=self._on_closing
         )
         quit_btn.grid(row=0, column=3)
@@ -346,7 +343,7 @@ class MainWindow:
             height=6,
             width=80,
             state='disabled',
-            font=('Consolas', 9),
+            font=theme.font_mono(),
             wrap=tk.WORD
         )
         self.status_text.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=(20, 0))
@@ -378,7 +375,7 @@ class MainWindow:
                 display_path = "..." + display_path[-57:]
             
             self.dir_label.config(text=display_path)
-            self._log_message(f"📁 Dossier sélectionné: {self.selected_directory}")
+            self._log_message(f"{theme.LOG_INFO} Dossier sélectionné: {self.selected_directory}")
         else:
             self.dir_label.config(text="Aucun dossier sélectionné")
     
@@ -397,13 +394,13 @@ class MainWindow:
             # Activer/désactiver le bouton de traitement
             if summary['valid_directory'] and summary['source_file_exists']:
                 self.create_json_btn.config(state='normal')
-                self._log_message("✅ Dossier valide - Traitement possible", "success")
+                self._log_message(f"{theme.LOG_OK} Dossier valide - Traitement possible", "success")
             else:
                 self.create_json_btn.config(state='disabled')
-                self._log_message("❌ Dossier invalide - Vérifiez les fichiers requis", "error")
+                self._log_message(f"{theme.LOG_ERR} Dossier invalide - Vérifiez les fichiers requis", "error")
                 
         except Exception as e:
-            self._log_message(f"❌ Erreur lors de l'analyse: {str(e)}", "error")
+            self._log_message(f"{theme.LOG_ERR} Erreur lors de l'analyse: {str(e)}", "error")
             self.create_json_btn.config(state='disabled')
     
     def _update_directory_info(self, summary: dict):
@@ -413,18 +410,18 @@ class MainWindow:
         
         # Informations sur le contenu
         info_text = []
-        info_text.append(f"📊 Bulletins estimés: {summary['estimated_bulletins']}")
-        info_text.append(f"📚 Matières trouvées: {summary['estimated_matieres']}")
-        info_text.append(f"📄 Fichiers CSV: {summary['csv_files_count']}")
+        info_text.append(f"Bulletins estimés: {summary['estimated_bulletins']}")
+        info_text.append(f"Matières trouvées: {summary['estimated_matieres']}")
+        info_text.append(f"Fichiers CSV: {summary['csv_files_count']}")
         
         if summary['csv_files']:
             matières = ", ".join(summary['csv_files'][:5])  # Limiter à 5 pour l'affichage
             if len(summary['csv_files']) > 5:
                 matières += f"... (+{len(summary['csv_files'])-5} autres)"
-            info_text.append(f"📝 Matières: {matières}")
+            info_text.append(f"Matières: {matières}")
         
         if summary['errors']:
-            info_text.append("⚠️ Problèmes détectés:")
+            info_text.append(f"{theme.LOG_WARN} Problèmes détectés:")
             for error in summary['errors'][:3]:  # Limiter à 3 erreurs
                 info_text.append(f"   • {error}")
         
@@ -457,7 +454,7 @@ class MainWindow:
         # Désactiver les boutons et démarrer la progression
         self.create_json_btn.config(state='disabled')
         self.progress.start()
-        self._log_message("🔄 Début du traitement JSON...")
+        self._log_message(f"{theme.LOG_INFO} Début du traitement JSON...")
         
         # Lancer le traitement en arrière-plan
         thread = threading.Thread(target=self._process_json_thread)
@@ -489,10 +486,10 @@ class MainWindow:
         self.create_json_btn.config(state='normal')
         
         # Messages de succès
-        self._log_message("✅ Traitement JSON terminé avec succès!", "success")
-        self._log_message(f"📄 {result['bulletins_count']} bulletins générés", "success")
-        self._log_message(f"📚 {result['matieres_count']} matières traitées", "success")
-        self._log_message(f"💾 Fichier sauvé: {result['output_file']}", "success")
+        self._log_message(f"{theme.LOG_OK} Traitement JSON terminé avec succès!", "success")
+        self._log_message(f"{result['bulletins_count']} bulletins générés", "success")
+        self._log_message(f"{result['matieres_count']} matières traitées", "success")
+        self._log_message(f"Fichier sauvé: {result['output_file']}", "success")
         detected_semester = self._parse_semester_string(result.get('semester'))
         self._remember_semester(detected_semester)
         self._update_period_selector(
@@ -502,7 +499,7 @@ class MainWindow:
         
         # Afficher les avertissements s'il y en a
         if result['warnings']:
-            self._log_message(f"⚠️ {len(result['warnings'])} avertissement(s):")
+            self._log_message(f"{theme.LOG_WARN} {len(result['warnings'])} avertissement(s):")
             for warning in result['warnings']:
                 self._log_message(f"   • {warning}", "warning")
         
@@ -516,9 +513,9 @@ class MainWindow:
         messagebox.showinfo(
             "Traitement terminé",
             f"Le fichier JSON a été créé avec succès!\n\n"
-            f"📄 {result['bulletins_count']} bulletins générés\n"
-            f"📚 {result['matieres_count']} matières traitées\n"
-            f"💾 Fichier: {os.path.basename(result['output_file'])}"
+            f"{result['bulletins_count']} bulletins générés\n"
+            f"{result['matieres_count']} matières traitées\n"
+            f"Fichier: {os.path.basename(result['output_file'])}"
         )
     
     def _on_json_error(self, error_message: str):
@@ -526,7 +523,7 @@ class MainWindow:
         self.progress.stop()
         self.create_json_btn.config(state='normal')
         
-        self._log_message(f"❌ Erreur lors du traitement: {error_message}", "error")
+        self._log_message(f"{theme.LOG_ERR} Erreur lors du traitement: {error_message}", "error")
         
         messagebox.showerror(
             "Erreur de traitement",
@@ -585,9 +582,9 @@ class MainWindow:
             self._log_linked_periods()
             
             # Messages de succès
-            self._log_message("✅ Fichier JSON chargé avec succès!", "success")
-            self._log_message(f"📄 {len(data)} bulletin(s) trouvé(s)", "success")
-            self._log_message(f"📂 Fichier: {os.path.basename(json_path)}", "success")
+            self._log_message(f"{theme.LOG_OK} Fichier JSON chargé avec succès!", "success")
+            self._log_message(f"{len(data)} bulletin(s) trouvé(s)", "success")
+            self._log_message(f"Fichier: {os.path.basename(json_path)}", "success")
             
             # Analyser la distribution des matières
             matieres_counts = [len(bulletin.get('Matieres', {})) for bulletin in data]
@@ -596,9 +593,9 @@ class MainWindow:
             moyenne_matieres = sum(matieres_counts) / len(matieres_counts)
             
             if min_matieres == max_matieres:
-                self._log_message(f"📚 {min_matieres} matière(s) par bulletin", "success")
+                self._log_message(f"{min_matieres} matière(s) par bulletin", "success")
             else:
-                self._log_message(f"📚 {min_matieres}-{max_matieres} matières par bulletin (moy: {moyenne_matieres:.1f})", "success")
+                self._log_message(f"{min_matieres}-{max_matieres} matières par bulletin (moy: {moyenne_matieres:.1f})", "success")
             
             # Compter les matières uniques
             toutes_matieres = set()
@@ -606,42 +603,42 @@ class MainWindow:
                 toutes_matieres.update(bulletin.get('Matieres', {}).keys())
             
             if len(toutes_matieres) > 0:
-                self._log_message(f"🎓 {len(toutes_matieres)} matière(s) différente(s) disponible(s)", "success")
+                self._log_message(f"{len(toutes_matieres)} matière(s) différente(s) disponible(s)", "success")
             
             # Préparer le message de confirmation
             if min_matieres == max_matieres:
-                matieres_msg = f"📚 {min_matieres} matière(s) par bulletin"
+                matieres_msg = f"{min_matieres} matière(s) par bulletin"
             else:
-                matieres_msg = f"📚 {min_matieres}-{max_matieres} matières par bulletin"
+                matieres_msg = f"{min_matieres}-{max_matieres} matières par bulletin"
             
             messagebox.showinfo(
                 "Chargement réussi",
                 f"Fichier JSON chargé avec succès!\n\n"
-                f"📄 {len(data)} bulletin(s) trouvé(s)\n"
+                f"{len(data)} bulletin(s) trouvé(s)\n"
                 f"{matieres_msg}\n"
-                f"🎓 {len(toutes_matieres)} matière(s) différente(s)\n"
-                f"📂 Fichier: {os.path.basename(json_path)}\n\n"
+                f"{len(toutes_matieres)} matière(s) différente(s)\n"
+                f"Fichier: {os.path.basename(json_path)}\n\n"
                 f"Vous pouvez maintenant accéder aux fenêtres d'édition et de conseil."
             )
             
         except json.JSONDecodeError as e:
             error_msg = f"Fichier JSON invalide: {str(e)}"
-            self._log_message(f"❌ {error_msg}", "error")
+            self._log_message(f"{theme.LOG_ERR} {error_msg}", "error")
             messagebox.showerror("Erreur de format", error_msg)
             
         except ValueError as e:
             error_msg = f"Structure de données invalide: {str(e)}"
-            self._log_message(f"❌ {error_msg}", "error")
+            self._log_message(f"{theme.LOG_ERR} {error_msg}", "error")
             messagebox.showerror("Erreur de structure", error_msg)
             
         except Exception as e:
             error_msg = f"Erreur lors du chargement: {str(e)}"
-            self._log_message(f"❌ {error_msg}", "error")
+            self._log_message(f"{theme.LOG_ERR} {error_msg}", "error")
             messagebox.showerror("Erreur", error_msg)
     
     def _open_edition_window(self):
         """Ouvre la fenêtre d'édition"""
-        self._log_message("📝 Ouverture de la fenêtre d'édition...")
+        self._log_message(f"{theme.LOG_INFO} Ouverture de la fenêtre d'édition...")
         
         # Vérifier qu'un fichier JSON existe
         if not self.output_json_path or not os.path.exists(self.output_json_path):
@@ -666,10 +663,10 @@ class MainWindow:
                 json_file_path=self.output_json_path,
                 initial_semester=self._last_semester
             )
-            self._log_message("✅ Fenêtre d'édition ouverte", "success")
+            self._log_message(f"{theme.LOG_OK} Fenêtre d'édition ouverte", "success")
             
         except Exception as e:
-            self._log_message(f"❌ Erreur lors de l'ouverture: {str(e)}", "error")
+            self._log_message(f"{theme.LOG_ERR} Erreur lors de l'ouverture: {str(e)}", "error")
             messagebox.showerror(
                 "Erreur",
                 f"Impossible d'ouvrir la fenêtre d'édition:\n{str(e)}"
@@ -677,7 +674,7 @@ class MainWindow:
     
     def _open_conseil_window(self):
         """Ouvre la fenêtre conseil"""
-        self._log_message("🎯 Ouverture de la fenêtre conseil...")
+        self._log_message(f"{theme.LOG_INFO} Ouverture de la fenêtre conseil...")
         
         # Vérifier qu'un fichier JSON existe
         if not self.output_json_path or not os.path.exists(self.output_json_path):
@@ -702,10 +699,10 @@ class MainWindow:
                 json_file_path=self.output_json_path,
                 initial_semester=self._last_semester
             )
-            self._log_message("✅ Fenêtre conseil ouverte", "success")
+            self._log_message(f"{theme.LOG_OK} Fenêtre conseil ouverte", "success")
             
         except Exception as e:
-            self._log_message(f"❌ Erreur lors de l'ouverture: {str(e)}", "error")
+            self._log_message(f"{theme.LOG_ERR} Erreur lors de l'ouverture: {str(e)}", "error")
             messagebox.showerror(
                 "Erreur",
                 f"Impossible d'ouvrir la fenêtre conseil:\n{str(e)}"
@@ -723,7 +720,7 @@ class MainWindow:
         """Stocke la période détectée pour les sous-fenêtres."""
         self._last_semester = semester
         if log:
-            self._log_message(f"🗂️ Période détectée: {semester.label}", "info")
+            self._log_message(f"{theme.LOG_INFO} Période détectée: {semester.label}", "info")
 
     def _detect_period_from_directory(self):
         """Déduit la période depuis le nom du dossier sélectionné (T1/T2/T3/S1/S2)."""
@@ -731,7 +728,7 @@ class MainWindow:
         if folder_period is None:
             self._period_override = None
             self._log_message(
-                "ℹ️ Période non déduite du nom du dossier — détection automatique au traitement",
+                f"{theme.LOG_INFO} Période non déduite du nom du dossier — détection automatique au traitement",
                 "info"
             )
             return
@@ -742,7 +739,7 @@ class MainWindow:
         system_periods = periods_for_system(folder_period.system)
         self._update_period_selector(system_periods, folder_period)
         self._log_message(
-            f"🗓️ Période déduite du dossier: {folder_period.label}",
+            f"{theme.LOG_INFO} Période déduite du dossier: {folder_period.label}",
             "success"
         )
 
@@ -782,7 +779,7 @@ class MainWindow:
         selected = periods[index]
         self._period_override = selected
         self._remember_semester(selected, log=False)
-        self._log_message(f"🗓️ Période sélectionnée: {selected.label}", "success")
+        self._log_message(f"{theme.LOG_OK} Période sélectionnée: {selected.label}", "success")
     
     def _open_period_links(self):
         """Ouvre la gestion des JSON des autres périodes."""
@@ -818,13 +815,13 @@ class MainWindow:
             links = {}
         if links:
             codes = ", ".join(sorted(links))
-            self._log_message(f"🔗 Périodes liées détectées: {codes}", "info")
+            self._log_message(f"{theme.LOG_INFO} Périodes liées détectées: {codes}", "info")
         else:
-            self._log_message("🔗 Aucune période liée détectée", "info")
+            self._log_message(f"{theme.LOG_INFO} Aucune période liée détectée", "info")
 
     def _open_config_window(self):
         """Ouvre la fenêtre de configuration IA"""
-        self._log_message("🤖 Ouverture de la fenêtre de configuration IA...")
+        self._log_message(f"{theme.LOG_INFO} Ouverture de la fenêtre de configuration IA...")
         
         try:
             # Créer et lancer la fenêtre de configuration
@@ -833,10 +830,10 @@ class MainWindow:
                 on_config_changed=self._on_ai_config_changed
             )
             
-            self._log_message("✅ Fenêtre de configuration IA ouverte", "success")
+            self._log_message(f"{theme.LOG_OK} Fenêtre de configuration IA ouverte", "success")
             
         except Exception as e:
-            self._log_message(f"❌ Erreur lors de l'ouverture de la configuration IA: {e}", "error")
+            self._log_message(f"{theme.LOG_ERR} Erreur lors de l'ouverture de la configuration IA: {e}", "error")
             messagebox.showerror(
                 "Erreur", 
                 f"Erreur lors de l'ouverture de la configuration IA:\n{str(e)}"
@@ -844,16 +841,16 @@ class MainWindow:
 
     def _open_csv_renamer_window(self):
         """Ouvre l'utilitaire de renommage des CSV."""
-        self._log_message("📋 Ouverture de l'utilitaire de renommage CSV...")
+        self._log_message(f"{theme.LOG_INFO} Ouverture de l'utilitaire de renommage CSV...")
         try:
             CsvRenamerWindow(
                 parent_window=self,
                 initial_directory=self.selected_directory,
                 on_renamed=self._analyze_directory,
             )
-            self._log_message("✅ Utilitaire de renommage CSV ouvert", "success")
+            self._log_message(f"{theme.LOG_OK} Utilitaire de renommage CSV ouvert", "success")
         except Exception as e:
-            self._log_message(f"❌ Erreur ouverture renommage CSV: {e}", "error")
+            self._log_message(f"{theme.LOG_ERR} Erreur ouverture renommage CSV: {e}", "error")
             messagebox.showerror(
                 "Erreur",
                 f"Erreur lors de l'ouverture de l'utilitaire de renommage:\n{str(e)}",
@@ -861,7 +858,7 @@ class MainWindow:
     
     def _on_ai_config_changed(self):
         """Callback appelé quand la configuration IA change"""
-        self._log_message("🔧 Configuration IA mise à jour", "success")
+        self._log_message(f"{theme.LOG_OK} Configuration IA mise à jour", "success")
     
     def _log_message(self, message: str, level: str = "info"):
         """Ajoute un message dans la zone de statut"""
@@ -899,8 +896,8 @@ class MainWindow:
     
     def run(self):
         """Lance l'application"""
-        self._log_message("🚀 Application BGRAPP Pyconseil démarrée")
-        self._log_message("📁 Sélectionnez un dossier contenant les fichiers source pour commencer")
+        self._log_message(f"{theme.LOG_INFO} Application BGRAPP Pyconseil démarrée")
+        self._log_message(f"{theme.LOG_INFO} Sélectionnez un dossier contenant les fichiers source pour commencer")
         self.root.mainloop()
 
 
